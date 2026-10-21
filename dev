@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# Development helper for the plugins in this repo.
+#
+#   ./dev setup [DUX_SHELL_DIR]  link a dux-shell checkout as .dux-shell (default: ../dux-shell,
+#                                or a sparse clone of upstream if that doesn't exist)
+#   ./dev check [PLUGIN...]      validate manifests (all plugins when none given)
+#   ./dev link PLUGIN            symlink PLUGIN into the running shell's plugin dir and rescan
+#   ./dev reload PLUGIN          reload PLUGIN in the running shell and print its status
+#   ./dev unlink PLUGIN          remove the symlink again
+#   ./dev strings PLUGIN [LOCALE] sync translations/*.json (or start LOCALE.json) with the code
+#
+# PLUGIN is a plugin directory in this repo, e.g. MyPlugin.
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")" && pwd)
+shell_dir="$root/.dux-shell"
+plugins_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dms/plugins"
+upstream=https://github.com/duxlabs-dev/dux-shell.git
+
+die() { echo "dev: $*" >&2; exit 1; }
+
+plugin_dir() {
+    [ -n "${1:-}" ] || die "missing plugin directory"
+    local dir="$root/${1%/}"
+    [ -f "$dir/plugin.json" ] || die "$1 has no plugin.json"
+    echo "$dir"
+}
+
+plugin_id() { jq -er .id "$1/plugin.json"; }
+
+cmd_setup() {
+    if [ -e "$shell_dir" ]; then
+        echo ".dux-shell -> $(readlink -f "$shell_dir")"
+        return
+    fi
+    local target=${1:-$root/../dux-shell}
+    if [ -d "$target/quickshell" ]; then
+        ln -s "$(cd "$target" && pwd)" "$shell_dir"
+    else
+        git clone --quiet --depth 1 --filter=blob:none --sparse "$upstream" "$shell_dir"
+        git -C "$shell_dir" sparse-checkout set quickshell .agents
+    fi
+    echo ".dux-shell -> $(readlink -f "$shell_dir")"
+}
+
+cmd_check() {
+    local schema="$shell_dir/quickshell/PLUGINS/plugin-schema.json"
+    [ -f "$schema" ] || die "no .dux-shell, run ./dev setup first"
+    local dirs=()
+    if [ $# -eq 0 ]; then
+        for m in "$root"/*/plugin.json; do [ -f "$m" ] && dirs+=("$(dirname "$m")"); done
+    else
+        for p in "$@"; do dirs+=("$(plugin_dir "$p")"); done
+    fi
+    [ ${#dirs[@]} -gt 0 ] || { echo "no plugins yet"; return; }
+    python3 -I - "$schema" "${dirs[@]}" <<'EOF'
+import json, re, sys
+from pathlib import Path
+from jsonschema.validators import validator_for
+
+schema = json.loads(Path(sys.argv[1]).read_text())
+validator = validator_for(schema)(schema)
+seen, failed = {}, False
+for d in map(Path, sys.argv[2:]):
+    errors = []
+    try:
+        m = json.loads((d / "plugin.json").read_text())
+    except ValueError as e:
+        errors.append(f"invalid JSON: {e}")
+        m = {}
+    if m:
+        errors += [f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in validator.iter_errors(m)]
+        pid = m.get("id", "")
+        # The registry is stricter than the schema: lowercase first letter.
+        if not re.fullmatch(r"[a-z][a-zA-Z0-9]*", pid):
+            errors.append(f"id {pid!r} must be camelCase starting lowercase (registry rule)")
+        if pid in seen:
+            errors.append(f"id {pid!r} also used by {seen[pid]}")
+        seen[pid] = d.name
+        paths = [m.get("component"), m.get("settings"), m.get("startupCheck"), *(m.get("components") or {}).values()]
+        errors += [f"{p} does not exist" for p in paths if isinstance(p, str) and not (d / p).is_file()]
+        if "component" in m and "components" in m:
+            errors.append("use component or components, not both")
+        if m.get("settings") and "settings_write" not in m.get("permissions", []):
+            errors.append("settings component needs the settings_write permission")
+        if "requires" in m:
+            errors.append("requires is deprecated, use dependencies")
+        for f in sorted([*d.rglob("*.qml"), *d.rglob("*.js")]):
+            src = f.read_text()
+            calls = src.count("I18n.trFor(")
+            literal = len(re.findall(r"I18n\.trFor\(\s*([\"'])" + re.escape(pid) + r"\1\s*,\s*[\"']", src))
+            if calls != literal:
+                errors.append(f"{f.relative_to(d)}: {calls - literal} I18n.trFor call(s) without literal "
+                              f"\"{pid}\" and a literal string, ./dev strings can't pick them up")
+    for e in errors:
+        print(f"{d.name}: {e}")
+    failed |= bool(errors)
+    if not errors:
+        print(f"{d.name}: ok")
+sys.exit(failed)
+EOF
+}
+
+cmd_link() {
+    local dir id link
+    dir=$(plugin_dir "${1:-}"); id=$(plugin_id "$dir"); link="$plugins_dir/$id"
+    if [ -L "$link" ] && [ "$(readlink -f "$link")" = "$dir" ]; then
+        echo "already linked: $link"
+    else
+        if [ -e "$link" ] || [ -L "$link" ]; then
+            die "$link exists (installed from the registry?), remove it first"
+        fi
+        mkdir -p "$plugins_dir"
+        ln -s "$dir" "$link"
+        echo "linked $link -> $dir"
+    fi
+    dms ipc plugin-scan scan >/dev/null
+    echo "enable it in Settings > Plugins, then add it to a bar, dock or the dash"
+}
+
+cmd_reload() {
+    local id
+    id=$(plugin_id "$(plugin_dir "${1:-}")")
+    dms ipc plugin-scan reload "$id"
+    dms ipc plugin-scan status "$id"
+}
+
+cmd_unlink() {
+    local dir id link
+    dir=$(plugin_dir "${1:-}"); id=$(plugin_id "$dir"); link="$plugins_dir/$id"
+    [ -L "$link" ] && [ "$(readlink -f "$link")" = "$dir" ] || die "$link is not a link to this repo"
+    rm "$link"
+    dms ipc plugin-scan scan >/dev/null
+    echo "unlinked $link"
+}
+
+cmd_strings() {
+    local dir
+    dir=$(plugin_dir "${1:-}")
+    python3 -I - "$dir" "$(plugin_id "$dir")" "${2:-}" <<'EOF'
+import ast, json, re, sys
+from pathlib import Path
+
+d, pid, new_locale = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+call = re.compile(r"I18n\.trFor\(\s*([\"'])" + re.escape(pid) + r"\1\s*,\s*([\"'])((?:\\.|(?!\2).)*)\2")
+terms = set()
+for f in [*d.rglob("*.qml"), *d.rglob("*.js")]:
+    for m in call.finditer(f.read_text()):
+        terms.add(ast.literal_eval(m.group(2) + m.group(3) + m.group(2)))
+
+tdir = d / "translations"
+files = sorted(tdir.glob("*.json")) if tdir.is_dir() else []
+if new_locale:
+    files = sorted(set(files) | {tdir / f"{new_locale}.json"})
+if not files:
+    sys.exit(f"{len(terms)} strings, no translations yet: ./dev strings {d.name} <locale>")
+tdir.mkdir(exist_ok=True)
+for path in files:
+    old = json.loads(path.read_text()) if path.exists() else {}
+    done = {t: (old.get(t) or {}).get(t, "") for t in terms}
+    path.write_text(json.dumps({t: {t: done[t]} for t in sorted(done, key=str.casefold)},
+                               ensure_ascii=False, indent=2) + "\n")
+    todo = sum(1 for v in done.values() if not v)
+    dropped = len(set(old) - terms)
+    print(f"{path.relative_to(d)}: {len(terms) - todo}/{len(terms)} translated"
+          + (f", {dropped} unused removed" if dropped else ""))
+EOF
+}
+
+case "${1:-}" in
+    setup | check | link | reload | unlink | strings) cmd=$1; shift; "cmd_$cmd" "$@" ;;
+    *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+esac
