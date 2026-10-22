@@ -26,7 +26,9 @@ PluginComponent {
     readonly property string bundledHelper: Paths.strip(Paths.data) + "/cast/bin/" + helperName
     property string helperPath: ""
     property bool helperResolved: false
-    readonly property string installGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#installation"
+    readonly property string installGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#3-install-cast-helper"
+    // Arch gets the helper from the AUR, which also installs the packages it needs.
+    property bool onArch: false
     // Downloads the helper built for this plugin version from the repository's releases.
     readonly property string helperDownloadCommand: {
         const version = pluginService?.availablePlugins?.[pluginId]?.version ?? "";
@@ -1194,6 +1196,7 @@ PluginComponent {
         savedShows = pluginService?.loadPluginState(pluginId, "shows", {}) ?? {};
         knownDevices = pluginService?.loadPluginState(pluginId, "knownDevices", {}) ?? {};
         findHelper();
+        Proc.runCommand("cast.findPacman", ["test", "-x", "/usr/bin/pacman"], (out, code) => root.onArch = code === 0);
     }
 
     function findHelper() {

@@ -722,10 +722,16 @@ PluginComponent {
             visible: panel.helperMissing
             iconName: "build"
             title: I18n.trFor("cast", "Cast helper not installed")
-            subtitle: I18n.trFor("cast", "Download it with this command, or build it from source")
+            subtitle: panel.service?.onArch ? I18n.trFor("cast", "Install it from the AUR, which also installs the packages it needs") : I18n.trFor("cast", "Download it with this command, or build it from source")
 
             CommandRow {
                 width: parent.width
+                command: panel.service?.onArch ? "yay -S cast-helper" : ""
+            }
+
+            CommandRow {
+                width: parent.width
+                label: panel.service?.onArch ? I18n.trFor("cast", "Or download") : ""
                 command: panel.service?.helperDownloadCommand ?? ""
             }
 

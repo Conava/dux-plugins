@@ -81,10 +81,16 @@ Enable it in Settings > Plugins and add it to a bar or the Control Center.
 The plugin looks for `cast-helper` on `PATH`, then in `~/.local/share/dms/cast/bin/`. Source:
 [`helpers/cast/`](../helpers/cast). Use one of these:
 
+Arch: install it from the AUR. This also installs the required packages from step 1.
+
+```bash
+yay -S cast-helper
+```
+
 Download the release build (x86_64 or aarch64, built by GitHub Actions from the tagged source):
 
 ```bash
-dms dl https://github.com/Conava/dux-plugins/releases/download/cast-v0.0.1/cast-helper-$(uname -m) \
+dms dl https://github.com/Conava/dux-plugins/releases/download/cast-v0.0.2/cast-helper-$(uname -m) \
   --timeout 300 -o ~/.local/share/dms/cast/bin/cast-helper \
   && chmod +x ~/.local/share/dms/cast/bin/cast-helper
 ```
@@ -93,7 +99,7 @@ Optionally check it against the release's checksums:
 
 ```bash
 cd ~/.local/share/dms/cast/bin
-dms dl https://github.com/Conava/dux-plugins/releases/download/cast-v0.0.1/SHA256SUMS \
+dms dl https://github.com/Conava/dux-plugins/releases/download/cast-v0.0.2/SHA256SUMS \
   | sed "s/-$(uname -m)\$//" | grep "cast-helper$" | sha256sum -c
 ```
 
@@ -104,8 +110,8 @@ cd ~/.local/src/dux-plugins/helpers/cast
 CGO_ENABLED=0 go build -o ~/.local/share/dms/cast/bin/cast-helper .
 ```
 
-The popout shows the download command for the installed version. Click "Check again" there once
-the helper is in place.
+The popout shows these commands (the AUR one on Arch). Click "Check again" there once the helper
+is in place.
 
 ### 4. Install doubletake (AirPlay only)
 

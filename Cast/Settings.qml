@@ -523,9 +523,22 @@ PluginSettings {
                     return root.service.helperPath || I18n.trFor("cast", "Not installed");
                 }
 
-                body: CommandRow {
+                body: Column {
                     width: parent.width
-                    command: root.service?.helperResolved && !root.service.helperPath ? root.service.helperDownloadCommand : ""
+                    spacing: Theme.spacingS
+                    visible: !!root.service?.helperResolved && !root.service.helperPath
+                    height: visible ? implicitHeight : 0
+
+                    CommandRow {
+                        width: parent.width
+                        command: root.service?.onArch ? "yay -S cast-helper" : ""
+                    }
+
+                    CommandRow {
+                        width: parent.width
+                        label: root.service?.onArch ? I18n.trFor("cast", "Or download") : ""
+                        command: root.service?.helperDownloadCommand ?? ""
+                    }
                 }
             }
 
