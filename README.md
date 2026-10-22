@@ -4,7 +4,9 @@ Plugins for [Dux Shell](https://github.com/duxlabs-dev/dux-shell).
 
 ## Plugins
 
-None yet.
+| Plugin | |
+|---|---|
+| [Screencast](Screencast) | Mirror your screen to Chromecast, Google TV and AirPlay devices, and play files, playlists, slideshows and links on Chromecast. Needs a helper program, see its [installation guide](Screencast/README.md#installation). |
 
 ## Installing
 
