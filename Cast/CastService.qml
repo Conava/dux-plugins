@@ -14,7 +14,7 @@ import qs.Modules.Settings.Widgets
 import qs.Services
 import qs.Widgets as ShellWidgets
 
-// Owns screencast-helper and the state every surface binds to. The helper
+// Owns cast-helper and the state every surface binds to. The helper
 // runs only while a device list is on screen or a cast is going. Also hosts
 // the player window, which needs a single instance.
 PluginComponent {
@@ -22,17 +22,17 @@ PluginComponent {
 
     property var popoutService: null
 
-    readonly property string helperName: "screencast-helper"
-    readonly property string bundledHelper: Paths.strip(Paths.data) + "/screencast/bin/" + helperName
+    readonly property string helperName: "cast-helper"
+    readonly property string bundledHelper: Paths.strip(Paths.data) + "/cast/bin/" + helperName
     property string helperPath: ""
     property bool helperResolved: false
-    readonly property string installGuide: "https://github.com/Conava/dux-plugins/blob/master/Screencast/README.md#installation"
+    readonly property string installGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#installation"
     // Downloads the helper built for this plugin version from the repository's releases.
     readonly property string helperDownloadCommand: {
         const version = pluginService?.availablePlugins?.[pluginId]?.version ?? "";
         if (!version)
             return "";
-        const url = "https://github.com/Conava/dux-plugins/releases/download/screencast-v" + version + "/" + helperName + "-$(uname -m)";
+        const url = "https://github.com/Conava/dux-plugins/releases/download/cast-v" + version + "/" + helperName + "-$(uname -m)";
         return "dms dl " + url + " --timeout 300 -o " + bundledHelper + " && chmod +x " + bundledHelper;
     }
 
@@ -745,8 +745,8 @@ PluginComponent {
         if (title)
             return title;
         if (names.length <= 1)
-            return names[0] ?? I18n.trFor("screencast", "New show");
-        return I18n.trFor("screencast", "%1 and %2 more").arg(names[0]).arg(names.length - 1);
+            return names[0] ?? I18n.trFor("cast", "New show");
+        return I18n.trFor("cast", "%1 and %2 more").arg(names[0]).arg(names.length - 1);
     }
 
     // A playlist's entries came back: play them, or put them into the show.
@@ -783,7 +783,7 @@ PluginComponent {
         const paths = library.items.filter(i => !i.url).map(i => i.path);
         if (paths.length === 0)
             return;
-        Proc.runCommand("screencast.checkFiles", ["stat", "--printf=%n\\n", "--"].concat(paths), stdout => {
+        Proc.runCommand("cast.checkFiles", ["stat", "--printf=%n\\n", "--"].concat(paths), stdout => {
             const found = new Set(stdout.split("\n"));
             root.setItems(root.library.items.map(i => Object.assign({}, i, {
                             "missing": !i.url && !found.has(i.path)
@@ -840,27 +840,27 @@ PluginComponent {
     function featureText(feature) {
         switch (feature) {
         case "discovery":
-            return I18n.trFor("screencast", "Device discovery");
+            return I18n.trFor("cast", "Device discovery");
         case "mirroring":
-            return I18n.trFor("screencast", "Screen mirroring");
+            return I18n.trFor("cast", "Screen mirroring");
         case "sound":
-            return I18n.trFor("screencast", "Audio streaming");
+            return I18n.trFor("cast", "Audio streaming");
         case "tvOnlySound":
-            return I18n.trFor("screencast", "Audio routing");
+            return I18n.trFor("cast", "Audio routing");
         case "files":
-            return I18n.trFor("screencast", "Media playback");
+            return I18n.trFor("cast", "Media playback");
         case "mkv":
-            return I18n.trFor("screencast", "MKV support");
+            return I18n.trFor("cast", "MKV support");
         case "convert":
-            return I18n.trFor("screencast", "Format conversion");
+            return I18n.trFor("cast", "Format conversion");
         case "photos":
-            return I18n.trFor("screencast", "Photo compression");
+            return I18n.trFor("cast", "Photo compression");
         case "heic":
-            return I18n.trFor("screencast", "HEIC support");
+            return I18n.trFor("cast", "HEIC support");
         case "airplay":
-            return I18n.trFor("screencast", "AirPlay");
+            return I18n.trFor("cast", "AirPlay");
         case "thumbnails":
-            return I18n.trFor("screencast", "Video thumbnails");
+            return I18n.trFor("cast", "Video thumbnails");
         }
         return feature ?? "";
     }
@@ -912,7 +912,7 @@ PluginComponent {
         switch (hint) {
         case "rpmfusionVA":
             return {
-                "text": I18n.trFor("screencast", "Hardware video encoding needs Mesa from RPM Fusion"),
+                "text": I18n.trFor("cast", "Hardware video encoding needs Mesa from RPM Fusion"),
                 "commands": [
                     {
                         "label": "AMD",
@@ -926,12 +926,12 @@ PluginComponent {
             };
         case "packmanVA":
             return {
-                "text": I18n.trFor("screencast", "Hardware video encoding on AMD needs Mesa from Packman"),
+                "text": I18n.trFor("cast", "Hardware video encoding on AMD needs Mesa from Packman"),
                 "commands": []
             };
         case "doubletakeAUR":
             return {
-                "text": I18n.trFor("screencast", "Install doubletake-bin from the AUR"),
+                "text": I18n.trFor("cast", "Install doubletake-bin from the AUR"),
                 "commands": [
                     {
                         "label": "",
@@ -941,7 +941,7 @@ PluginComponent {
             };
         case "doubletakeRelease":
             return {
-                "text": I18n.trFor("screencast", "Install doubletake from its releases page"),
+                "text": I18n.trFor("cast", "Install doubletake from its releases page"),
                 "commands": [
                     {
                         "label": "",
@@ -951,7 +951,7 @@ PluginComponent {
             };
         case "rpmfusionHeif":
             return {
-                "text": I18n.trFor("screencast", "HEIC photos need libheif-freeworld from RPM Fusion"),
+                "text": I18n.trFor("cast", "HEIC photos need libheif-freeworld from RPM Fusion"),
                 "commands": [
                     {
                         "label": "",
@@ -975,11 +975,11 @@ PluginComponent {
     }
 
     function missingText(feature) {
-        return I18n.trFor("screencast", "%1 requires additional packages").arg(featureText(feature));
+        return I18n.trFor("cast", "%1 requires additional packages").arg(featureText(feature));
     }
 
     function missingHint(ids) {
-        return I18n.trFor("screencast", "Install %1").arg(packagesFor(ids).join(", "));
+        return I18n.trFor("cast", "Install %1").arg(packagesFor(ids).join(", "));
     }
 
     // Why a queue item failed.
@@ -999,49 +999,49 @@ PluginComponent {
     function errorText(code) {
         switch (code) {
         case "missingDependency":
-            return I18n.trFor("screencast", "Additional packages required");
+            return I18n.trFor("cast", "Additional packages required");
         case "portalDenied":
-            return I18n.trFor("screencast", "Screen sharing was cancelled");
+            return I18n.trFor("cast", "Screen sharing was cancelled");
         case "deviceLost":
-            return I18n.trFor("screencast", "Lost the connection to the cast device");
+            return I18n.trFor("cast", "Lost the connection to the cast device");
         case "deviceNotFound":
-            return I18n.trFor("screencast", "The cast device is no longer on the network");
+            return I18n.trFor("cast", "The cast device is no longer on the network");
         case "launchRefused":
-            return I18n.trFor("screencast", "The cast device refused the cast");
+            return I18n.trFor("cast", "The cast device refused the cast");
         case "authorizationTimeout":
-            return I18n.trFor("screencast", "The cast wasn't accepted on the device in time");
+            return I18n.trFor("cast", "The cast wasn't accepted on the device in time");
         case "encoderMissing":
-            return I18n.trFor("screencast", "No video encoder found for this device");
+            return I18n.trFor("cast", "No video encoder found for this device");
         case "pipelineFailed":
-            return I18n.trFor("screencast", "Screen capture stopped unexpectedly");
+            return I18n.trFor("cast", "Screen capture stopped unexpectedly");
         case "unsupportedFile":
-            return I18n.trFor("screencast", "This file can't be played on the cast device");
+            return I18n.trFor("cast", "This file can't be played on the cast device");
         case "loadFailed":
-            return I18n.trFor("screencast", "The cast device couldn't play this file");
+            return I18n.trFor("cast", "The cast device couldn't play this file");
         case "receiverStopped":
-            return I18n.trFor("screencast", "The cast was ended on the device");
+            return I18n.trFor("cast", "The cast was ended on the device");
         case "serverUnreachable":
-            return I18n.trFor("screencast", "The cast device can't reach this computer");
+            return I18n.trFor("cast", "The cast device can't reach this computer");
         case "convertFailed":
-            return I18n.trFor("screencast", "Preparing the video for the device failed");
+            return I18n.trFor("cast", "Preparing the video for the device failed");
         case "portInUse":
-            return I18n.trFor("screencast", "The port for playing files is already in use");
+            return I18n.trFor("cast", "The port for playing files is already in use");
         case "airplayFailed":
-            return I18n.trFor("screencast", "AirPlay connection failed");
+            return I18n.trFor("cast", "AirPlay connection failed");
         case "airplayNoMedia":
-            return I18n.trFor("screencast", "Files and links play over Chromecast only");
+            return I18n.trFor("cast", "Files and links play over Chromecast only");
         case "youtubeFailed":
-            return I18n.trFor("screencast", "YouTube didn't start on the cast device");
+            return I18n.trFor("cast", "YouTube didn't start on the cast device");
         case "unsupportedLink":
-            return I18n.trFor("screencast", "Only http and https links can be played");
+            return I18n.trFor("cast", "Only http and https links can be played");
         case "busy":
-            return I18n.trFor("screencast", "Already casting");
+            return I18n.trFor("cast", "Already casting");
         case "helperCrashed":
-            return I18n.trFor("screencast", "The screencast helper stopped unexpectedly");
+            return I18n.trFor("cast", "The cast helper stopped unexpectedly");
         case "avahi":
-            return I18n.trFor("screencast", "Device discovery is unavailable");
+            return I18n.trFor("cast", "Device discovery is unavailable");
         default:
-            return I18n.trFor("screencast", "Casting failed");
+            return I18n.trFor("cast", "Casting failed");
         }
     }
 
@@ -1051,9 +1051,9 @@ PluginComponent {
         case "missingDependency":
             return missingHint(err.missing);
         case "serverUnreachable":
-            return I18n.trFor("screencast", "Allow TCP port %1 in your firewall").arg(mediaPort);
+            return I18n.trFor("cast", "Allow TCP port %1 in your firewall").arg(mediaPort);
         case "portInUse":
-            return I18n.trFor("screencast", "Pick another port in the settings");
+            return I18n.trFor("cast", "Pick another port in the settings");
         default:
             // The helper's own detail is English and stays in the log.
             return "";
@@ -1079,7 +1079,7 @@ PluginComponent {
         if (helper.running)
             return;
         if (!helperResolved || !helperPath) {
-            console.info("screencast: helper not started, path", helperResolved ? "not found" : "not resolved yet");
+            console.info("cast: helper not started, path", helperResolved ? "not found" : "not resolved yet");
             return;
         }
         helper.stdinEnabled = true;
@@ -1102,7 +1102,7 @@ PluginComponent {
         try {
             msg = JSON.parse(line);
         } catch (e) {
-            console.warn("screencast: bad helper output:", line);
+            console.warn("cast: bad helper output:", line);
             return;
         }
         switch (msg.event) {
@@ -1129,7 +1129,7 @@ PluginComponent {
         case "error":
             starting = false;
             lastError = msg;
-            console.warn("screencast:", msg.code, msg.detail ?? "");
+            console.warn("cast:", msg.code, msg.detail ?? "");
             return;
         case "check":
             missing = msg.missing ?? [];
@@ -1197,7 +1197,7 @@ PluginComponent {
     }
 
     function findHelper() {
-        Proc.runCommand("screencast.findHelper", ["sh", "-c", "command -v screencast-helper || true"], (stdout, exitCode) => {
+        Proc.runCommand("cast.findHelper", ["sh", "-c", "command -v cast-helper || true"], (stdout, exitCode) => {
             const onPath = stdout.trim();
             if (onPath) {
                 root.helperPath = onPath;
@@ -1205,7 +1205,7 @@ PluginComponent {
                 root.ensureRunningIfWanted();
                 return;
             }
-            Proc.runCommand("screencast.findBundled", ["test", "-x", root.bundledHelper], (out, code) => {
+            Proc.runCommand("cast.findBundled", ["test", "-x", root.bundledHelper], (out, code) => {
                 root.helperPath = code === 0 ? root.bundledHelper : "";
                 root.helperResolved = true;
                 root.ensureRunningIfWanted();
@@ -1240,7 +1240,7 @@ PluginComponent {
         stdinEnabled: true
 
         onStarted: {
-            console.info("screencast: helper started:", root.helperPath);
+            console.info("cast: helper started:", root.helperPath);
             root._thumbPending = {};
             root.send({
                 "cmd": "check"
@@ -1254,7 +1254,7 @@ PluginComponent {
         }
 
         onExited: (exitCode, exitStatus) => {
-            console.info("screencast: helper exited with", exitCode);
+            console.info("cast: helper exited with", exitCode);
             const wasCasting = root.casting || root.starting;
             root.session = null;
             root.starting = false;
@@ -1273,7 +1273,7 @@ PluginComponent {
         }
 
         stderr: SplitParser {
-            onRead: line => console.info("screencast-helper:", line)
+            onRead: line => console.info("cast-helper:", line)
         }
     }
 
@@ -1334,7 +1334,7 @@ PluginComponent {
             anchors.verticalCenter: parent.verticalCenter
             iconName: "content_copy"
             iconSize: Theme.iconSizeSmall
-            tooltipText: I18n.trFor("screencast", "Copy")
+            tooltipText: I18n.trFor("cast", "Copy")
             Accessible.name: tooltipText
             onClicked: Quickshell.execDetached(["dms", "cl", "copy", commandRow.command])
         }
@@ -1445,7 +1445,7 @@ PluginComponent {
             service.pair(codeField.text);
         }
 
-        title: I18n.trFor("screencast", "Pair with AirPlay")
+        title: I18n.trFor("cast", "Pair with AirPlay")
         implicitWidth: Math.round(Theme.fontSizeMedium * 30)
         implicitHeight: pairLayout.implicitHeight + Theme.spacingL * 2
         visible: true
@@ -1468,8 +1468,8 @@ PluginComponent {
             DWindowHeader {
                 width: parent.width
                 controls: pairControls
-                title: I18n.trFor("screencast", "Pair with %1").arg(pairWin.service.sessionDevice?.name ?? "")
-                subtitle: pairWin.password ? I18n.trFor("screencast", "Enter the AirPlay password") : I18n.trFor("screencast", "Enter the code shown on the screen")
+                title: I18n.trFor("cast", "Pair with %1").arg(pairWin.service.sessionDevice?.name ?? "")
+                subtitle: pairWin.password ? I18n.trFor("cast", "Enter the AirPlay password") : I18n.trFor("cast", "Enter the code shown on the screen")
                 titleAlignment: Text.AlignLeft
                 onCloseRequested: pairWin.close()
             }
@@ -1477,7 +1477,7 @@ PluginComponent {
             DTextField {
                 id: codeField
                 width: parent.width
-                placeholderText: pairWin.password ? I18n.trFor("screencast", "Password") : I18n.trFor("screencast", "Code")
+                placeholderText: pairWin.password ? I18n.trFor("cast", "Password") : I18n.trFor("cast", "Code")
                 echoMode: pairWin.password ? TextInput.Password : TextInput.Normal
                 validator: RegularExpressionValidator {
                     regularExpression: pairWin.password ? /.*/ : /\d{0,8}/
@@ -1491,7 +1491,7 @@ PluginComponent {
                 spacing: Theme.spacingS
 
                 DButton {
-                    text: I18n.trFor("screencast", "Cancel")
+                    text: I18n.trFor("cast", "Cancel")
                     backgroundColor: Theme.secondaryContainer
                     textColor: Theme.onSecondaryContainer
                     onClicked: {
@@ -1501,7 +1501,7 @@ PluginComponent {
                 }
 
                 DButton {
-                    text: I18n.trFor("screencast", "Pair")
+                    text: I18n.trFor("cast", "Pair")
                     enabled: codeField.text !== ""
                     onClicked: pairWin.submit()
                 }
@@ -1542,7 +1542,7 @@ PluginComponent {
         }
         readonly property var onDeviceItem: items[onDevice] ?? null
         readonly property var device: service.playerDevice
-        readonly property string deviceName: device?.name ?? I18n.trFor("screencast", "cast device")
+        readonly property string deviceName: device?.name ?? I18n.trFor("cast", "cast device")
         property bool gridMode: false
         property string pickMode: "files"
 
@@ -1580,7 +1580,7 @@ PluginComponent {
             pick(mode);
         }
 
-        title: I18n.trFor("screencast", "Player")
+        title: I18n.trFor("cast", "Player")
         implicitWidth: Math.round(Theme.fontSizeMedium * 68)
         implicitHeight: heightWithin(Math.round(Theme.fontSizeMedium * 50), Theme.spacingXL * 2)
         minimumSize: Qt.size(Math.round(Theme.fontSizeMedium * 44), Math.round(Theme.fontSizeMedium * 34))
@@ -1606,13 +1606,13 @@ PluginComponent {
                 browserTitle: {
                     switch (win.pickMode) {
                     case "folder":
-                        return I18n.trFor("screencast", "Add a folder");
+                        return I18n.trFor("cast", "Add a folder");
                     case "playlist":
-                        return I18n.trFor("screencast", "Open a playlist");
+                        return I18n.trFor("cast", "Open a playlist");
                     }
-                    return I18n.trFor("screencast", "Add files");
+                    return I18n.trFor("cast", "Add files");
                 }
-                bucket: "screencast"
+                bucket: "cast"
                 folderMode: win.pickMode === "folder"
                 multiple: win.pickMode === "files"
                 filters: win.pickMode === "playlist" ? win.service.playlistExtensions.map(e => "*." + e) : win.service.pickerFilters
@@ -1645,13 +1645,13 @@ PluginComponent {
                 id: header
                 width: parent.width
                 controls: windowControls
-                title: win.showHome ? I18n.trFor("screencast", "Player") : win.service.showName(win.service.library.title, win.items.map(i => i.name))
+                title: win.showHome ? I18n.trFor("cast", "Player") : win.service.showName(win.service.library.title, win.items.map(i => i.name))
                 subtitle: {
                     if (win.showHome)
-                        return I18n.trFor("screencast", "Shows");
-                    const parts = [I18n.trFor("screencast", "%1 items").arg(win.items.length)];
+                        return I18n.trFor("cast", "Shows");
+                    const parts = [I18n.trFor("cast", "%1 items").arg(win.items.length)];
                     if (win.missingCount > 0)
-                        parts.push(I18n.trFor("screencast", "%1 not found").arg(win.missingCount));
+                        parts.push(I18n.trFor("cast", "%1 not found").arg(win.missingCount));
                     return parts.join(" · ");
                 }
                 titleAlignment: Text.AlignLeft
@@ -1660,7 +1660,7 @@ PluginComponent {
                 DActionButton {
                     visible: !win.empty
                     iconName: win.home ? "arrow_back" : "video_library"
-                    tooltipText: win.home ? I18n.trFor("screencast", "Back to the show") : I18n.trFor("screencast", "Shows")
+                    tooltipText: win.home ? I18n.trFor("cast", "Back to the show") : I18n.trFor("cast", "Shows")
                     Accessible.name: tooltipText
                     onClicked: win.home = !win.home
                 }
@@ -1669,7 +1669,7 @@ PluginComponent {
                     visible: !win.showHome
                     buttonHeight: Theme.buttonHeightXS
                     iconName: "add"
-                    text: I18n.trFor("screencast", "Add files")
+                    text: I18n.trFor("cast", "Add files")
                     backgroundColor: Theme.secondaryContainer
                     textColor: Theme.onSecondaryContainer
                     onClicked: win.pick("files")
@@ -1679,7 +1679,7 @@ PluginComponent {
                     visible: !win.showHome
                     buttonHeight: Theme.buttonHeightXS
                     iconName: "create_new_folder"
-                    text: I18n.trFor("screencast", "Add a folder")
+                    text: I18n.trFor("cast", "Add a folder")
                     backgroundColor: Theme.secondaryContainer
                     textColor: Theme.onSecondaryContainer
                     onClicked: win.pick("folder")
@@ -1688,7 +1688,7 @@ PluginComponent {
                 DActionButton {
                     visible: !win.showHome
                     iconName: win.gridMode ? "view_carousel" : "grid_view"
-                    tooltipText: win.gridMode ? I18n.trFor("screencast", "Filmstrip") : I18n.trFor("screencast", "Grid")
+                    tooltipText: win.gridMode ? I18n.trFor("cast", "Filmstrip") : I18n.trFor("cast", "Grid")
                     Accessible.name: tooltipText
                     onClicked: win.gridMode = !win.gridMode
                 }
@@ -1698,7 +1698,7 @@ PluginComponent {
                     compactMode: true
                     dropdownWidth: CcMetrics.rowDropdownWidth
                     alignPopupRight: true
-                    emptyText: I18n.trFor("screencast", "No cast devices")
+                    emptyText: I18n.trFor("cast", "No cast devices")
                     options: win.service.mediaDevices.map(d => d.name)
                     currentValue: win.device?.name ?? ""
                     onValueChanged: value => {
@@ -1730,7 +1730,7 @@ PluginComponent {
                     CcEmptyState {
                         width: parent.width
                         iconName: "photo_library"
-                        title: I18n.trFor("screencast", "Show something on %1").arg(win.deviceName)
+                        title: I18n.trFor("cast", "Show something on %1").arg(win.deviceName)
                     }
 
                     Row {
@@ -1739,7 +1739,7 @@ PluginComponent {
 
                         DFab {
                             iconName: "add"
-                            text: I18n.trFor("screencast", "New show")
+                            text: I18n.trFor("cast", "New show")
                             onClicked: win.startShow("files")
                         }
 
@@ -1747,7 +1747,7 @@ PluginComponent {
                             anchors.verticalCenter: parent.verticalCenter
                             buttonHeight: Theme.buttonHeightM
                             iconName: "folder_open"
-                            text: I18n.trFor("screencast", "From a folder")
+                            text: I18n.trFor("cast", "From a folder")
                             backgroundColor: Theme.secondaryContainer
                             textColor: Theme.onSecondaryContainer
                             onClicked: win.startShow("folder")
@@ -1757,7 +1757,7 @@ PluginComponent {
                             anchors.verticalCenter: parent.verticalCenter
                             buttonHeight: Theme.buttonHeightM
                             iconName: "queue_music"
-                            text: I18n.trFor("screencast", "Open a playlist")
+                            text: I18n.trFor("cast", "Open a playlist")
                             backgroundColor: Theme.secondaryContainer
                             textColor: Theme.onSecondaryContainer
                             onClicked: win.startShow("playlist")
@@ -1786,15 +1786,15 @@ PluginComponent {
                                 if (!last)
                                     return "";
                                 if (continueGroup.playing)
-                                    return I18n.trFor("screencast", "Playing on %1").arg(win.service.sessionDevice?.name ?? win.deviceName);
-                                return I18n.trFor("screencast", "Stopped at %1 of %2").arg(last.index + 1).arg(last.paths.length);
+                                    return I18n.trFor("cast", "Playing on %1").arg(win.service.sessionDevice?.name ?? win.deviceName);
+                                return I18n.trFor("cast", "Stopped at %1 of %2").arg(last.index + 1).arg(last.paths.length);
                             }
 
                             DButton {
                                 anchors.verticalCenter: parent.verticalCenter
                                 buttonHeight: Theme.buttonHeightXS
                                 iconName: continueGroup.playing ? "arrow_forward" : "play_arrow"
-                                text: continueGroup.playing ? I18n.trFor("screencast", "Open") : I18n.trFor("screencast", "Continue")
+                                text: continueGroup.playing ? I18n.trFor("cast", "Open") : I18n.trFor("cast", "Continue")
                                 enabled: continueGroup.playing || !!win.device
                                 onClicked: {
                                     if (continueGroup.playing)
@@ -1809,7 +1809,7 @@ PluginComponent {
 
                     CcSectionLabel {
                         visible: savedRepeater.count > 0
-                        text: I18n.trFor("screencast", "Saved shows")
+                        text: I18n.trFor("cast", "Saved shows")
                     }
 
                     CcGroup {
@@ -1825,7 +1825,7 @@ PluginComponent {
 
                                 iconName: "video_library"
                                 title: modelData
-                                subtitle: I18n.trFor("screencast", "%1 items").arg((win.service.savedShows[modelData] ?? []).length)
+                                subtitle: I18n.trFor("cast", "%1 items").arg((win.service.savedShows[modelData] ?? []).length)
                                 clickable: true
                                 onClicked: {
                                     win.service.openShow(modelData);
@@ -1835,7 +1835,7 @@ PluginComponent {
                                 DActionButton {
                                     anchors.verticalCenter: parent.verticalCenter
                                     iconName: "delete"
-                                    tooltipText: I18n.trFor("screencast", "Delete show")
+                                    tooltipText: I18n.trFor("cast", "Delete show")
                                     Accessible.name: tooltipText
                                     onClicked: win.service.deleteShow(savedRow.modelData)
                                 }
@@ -1845,7 +1845,7 @@ PluginComponent {
 
                     CcSectionLabel {
                         visible: win.service.recentShows.length > 0
-                        text: I18n.trFor("screencast", "Recent shows")
+                        text: I18n.trFor("cast", "Recent shows")
                     }
 
                     CcGroup {
@@ -1863,10 +1863,10 @@ PluginComponent {
                                 title: win.service.showName(modelData.title, modelData.paths.map(p => win.service.baseName(p)))
                                 subtitle: {
                                     if (playing)
-                                        return I18n.trFor("screencast", "%1 items · playing").arg(modelData.paths.length);
+                                        return I18n.trFor("cast", "%1 items · playing").arg(modelData.paths.length);
                                     if (modelData.index > 0)
-                                        return I18n.trFor("screencast", "%1 items · stopped at %2").arg(modelData.paths.length).arg(modelData.index + 1);
-                                    return I18n.trFor("screencast", "%1 items").arg(modelData.paths.length);
+                                        return I18n.trFor("cast", "%1 items · stopped at %2").arg(modelData.paths.length).arg(modelData.index + 1);
+                                    return I18n.trFor("cast", "%1 items").arg(modelData.paths.length);
                                 }
                                 showChevron: true
                                 clickable: true
@@ -2002,7 +2002,7 @@ PluginComponent {
 
                                 StyledText {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: I18n.trFor("screencast", "On %1").arg(win.deviceName)
+                                    text: I18n.trFor("cast", "On %1").arg(win.deviceName)
                                     font.pixelSize: Theme.fontSizeSmall
                                     font.weight: Theme.fontWeightMedium
                                     color: Theme.onPrimaryContainer
@@ -2054,14 +2054,14 @@ PluginComponent {
                                     StyledText {
                                         width: parent.width
                                         text: {
-                                            const pos = I18n.trFor("screencast", "%1 of %2").arg(win.selected + 1).arg(win.items.length);
+                                            const pos = I18n.trFor("cast", "%1 of %2").arg(win.selected + 1).arg(win.items.length);
                                             const entry = win.selectedEntry;
                                             if (win.selectedItem?.missing)
-                                                return pos + " · " + I18n.trFor("screencast", "Not found");
+                                                return pos + " · " + I18n.trFor("cast", "Not found");
                                             if (entry?.status === "failed")
                                                 return pos + " · " + win.service.itemErrorText(entry);
                                             if (entry?.status === "preparing")
-                                                return pos + " · " + I18n.trFor("screencast", "Preparing... %1%").arg(Math.round((entry.progress ?? 0) * 100));
+                                                return pos + " · " + I18n.trFor("cast", "Preparing... %1%").arg(Math.round((entry.progress ?? 0) * 100));
                                             if (win.selectedEntry?.artist)
                                                 return pos + " · " + win.selectedEntry.artist;
                                             return pos;
@@ -2077,7 +2077,7 @@ PluginComponent {
                                     visible: !stage.isOnDevice && !!win.device && !(win.selectedItem?.missing ?? true)
                                     anchors.verticalCenter: parent.verticalCenter
                                     iconName: "cast"
-                                    text: win.service.showingLibrary ? I18n.trFor("screencast", "Show now") : I18n.trFor("screencast", "Start here")
+                                    text: win.service.showingLibrary ? I18n.trFor("cast", "Show now") : I18n.trFor("cast", "Start here")
                                     onClicked: win.service.showNow(win.selected)
                                 }
                             }
@@ -2128,13 +2128,13 @@ PluginComponent {
 
                                 SettingsRow {
                                     iconName: "cast"
-                                    title: I18n.trFor("screencast", "Playing on %1").arg(win.service.sessionDevice?.name ?? win.deviceName)
+                                    title: I18n.trFor("cast", "Playing on %1").arg(win.service.sessionDevice?.name ?? win.deviceName)
                                     subtitle: win.service.playingShow ? win.service.showName(win.service.playingShow.title, win.service.playingShow.paths.map(p => win.service.baseName(p))) : ""
 
                                     body: DButton {
                                         buttonHeight: Theme.buttonHeightXS
                                         iconName: "arrow_back"
-                                        text: I18n.trFor("screencast", "Back to the running show")
+                                        text: I18n.trFor("cast", "Back to the running show")
                                         backgroundColor: Theme.secondaryContainer
                                         textColor: Theme.onSecondaryContainer
                                         onClicked: win.service.openRecent(win.service.playingShow)
@@ -2143,7 +2143,7 @@ PluginComponent {
                             }
 
                             SettingsSectionLabel {
-                                text: I18n.trFor("screencast", "Show")
+                                text: I18n.trFor("cast", "Show")
                                 topGap: win.notice || win.service.otherShowPlaying ? SettingsMetrics.sectionLabelTopGap : 0
                             }
 
@@ -2156,7 +2156,7 @@ PluginComponent {
                                         DTextField {
                                             id: nameField
                                             width: parent.width - saveButton.width - parent.spacing
-                                            placeholderText: I18n.trFor("screencast", "Name this show")
+                                            placeholderText: I18n.trFor("cast", "Name this show")
                                             text: win.service.library.saved
                                             onAccepted: win.service.saveShow(text)
                                         }
@@ -2166,7 +2166,7 @@ PluginComponent {
                                             anchors.verticalCenter: parent.verticalCenter
                                             buttonHeight: Theme.buttonHeightXS
                                             iconName: "save"
-                                            text: I18n.trFor("screencast", "Save")
+                                            text: I18n.trFor("cast", "Save")
                                             enabled: nameField.text.trim() !== ""
                                             backgroundColor: Theme.secondaryContainer
                                             textColor: Theme.onSecondaryContainer
@@ -2184,7 +2184,7 @@ PluginComponent {
                                         anchors.verticalCenter: parent.verticalCenter
                                         iconName: "arrow_back"
                                         enabled: win.selected > 0
-                                        tooltipText: I18n.trFor("screencast", "Move earlier")
+                                        tooltipText: I18n.trFor("cast", "Move earlier")
                                         Accessible.name: tooltipText
                                         onClicked: win.service.moveItem(win.selected, win.selected - 1)
                                     }
@@ -2193,7 +2193,7 @@ PluginComponent {
                                         anchors.verticalCenter: parent.verticalCenter
                                         iconName: "arrow_forward"
                                         enabled: win.selected < win.items.length - 1
-                                        tooltipText: I18n.trFor("screencast", "Move later")
+                                        tooltipText: I18n.trFor("cast", "Move later")
                                         Accessible.name: tooltipText
                                         onClicked: win.service.moveItem(win.selected, win.selected + 1)
                                     }
@@ -2201,7 +2201,7 @@ PluginComponent {
                                     DActionButton {
                                         anchors.verticalCenter: parent.verticalCenter
                                         iconName: "delete"
-                                        tooltipText: I18n.trFor("screencast", "Remove from the show")
+                                        tooltipText: I18n.trFor("cast", "Remove from the show")
                                         Accessible.name: tooltipText
                                         onClicked: win.service.removeItem(win.selected)
                                     }
@@ -2209,12 +2209,12 @@ PluginComponent {
                             }
 
                             SettingsSectionLabel {
-                                text: I18n.trFor("screencast", "Photos change")
+                                text: I18n.trFor("cast", "Photos change")
                             }
 
                             SettingsGroup {
                                 SettingsButtonGroupRow {
-                                    model: [I18n.trFor("screencast", "Manual")].concat([5, 8, 15].map(n => I18n.trFor("screencast", "%1 s").arg(n)))
+                                    model: [I18n.trFor("cast", "Manual")].concat([5, 8, 15].map(n => I18n.trFor("cast", "%1 s").arg(n)))
                                     values: [0, 5, 8, 15]
                                     value: win.service.slideshowInterval
                                     fallbackValue: 8
@@ -2223,7 +2223,7 @@ PluginComponent {
 
                                 SettingsToggleRow {
                                     iconName: "repeat"
-                                    text: I18n.trFor("screencast", "Repeat")
+                                    text: I18n.trFor("cast", "Repeat")
                                     checked: win.service.pluginData.slideshowLoop ?? false
                                     onToggled: checked => win.service.setSetting("slideshowLoop", checked)
                                 }
@@ -2265,8 +2265,8 @@ PluginComponent {
                                     iconColor: waiting ? Theme.surfaceText : Theme.success
                                     title: {
                                         if (waiting)
-                                            return I18n.trFor("screencast", "Preparing the next video");
-                                        return cached > 0 ? I18n.trFor("screencast", "Next %1 cached").arg(cached) : I18n.trFor("screencast", "Caching the next items");
+                                            return I18n.trFor("cast", "Preparing the next video");
+                                        return cached > 0 ? I18n.trFor("cast", "Next %1 cached").arg(cached) : I18n.trFor("cast", "Caching the next items");
                                     }
                                 }
 
@@ -2274,7 +2274,7 @@ PluginComponent {
                                     DButton {
                                         buttonHeight: Theme.buttonHeightXS
                                         iconName: "stop"
-                                        text: I18n.trFor("screencast", "Stop casting")
+                                        text: I18n.trFor("cast", "Stop casting")
                                         backgroundColor: Theme.errorContainer
                                         textColor: Theme.onErrorContainer
                                         onClicked: win.service.stopCast()
@@ -2301,7 +2301,7 @@ PluginComponent {
                         anchors.verticalCenter: parent.verticalCenter
                         iconName: "skip_previous"
                         enabled: transport.active && win.service.sessionIndex > 0
-                        Accessible.name: I18n.trFor("screencast", "Previous")
+                        Accessible.name: I18n.trFor("cast", "Previous")
                         onClicked: win.service.mediaCommand("previous")
                     }
 
@@ -2318,7 +2318,7 @@ PluginComponent {
                         radius: Theme.buttonRadius(width, height, buttonSize, pressed, checked)
                         iconName: transport.manualPhoto ? "skip_next" : checked ? "pause" : "play_arrow"
                         enabled: !!win.device && (!transport.manualPhoto || win.service.sessionIndex < win.service.sessionQueue.length - 1)
-                        Accessible.name: transport.manualPhoto ? I18n.trFor("screencast", "Next") : checked ? I18n.trFor("screencast", "Pause") : I18n.trFor("screencast", "Play")
+                        Accessible.name: transport.manualPhoto ? I18n.trFor("cast", "Next") : checked ? I18n.trFor("cast", "Pause") : I18n.trFor("cast", "Play")
                         onClicked: {
                             if (transport.active)
                                 win.service.togglePlay();
@@ -2332,7 +2332,7 @@ PluginComponent {
                         anchors.verticalCenter: parent.verticalCenter
                         iconName: "skip_next"
                         enabled: transport.active && win.service.sessionIndex < win.service.sessionQueue.length - 1
-                        Accessible.name: I18n.trFor("screencast", "Next")
+                        Accessible.name: I18n.trFor("cast", "Next")
                         onClicked: win.service.mediaCommand("next")
                     }
 
@@ -2379,16 +2379,16 @@ PluginComponent {
                             StyledText {
                                 text: {
                                     if (win.service.otherShowPlaying)
-                                        return I18n.trFor("screencast", "Play replaces the running show");
+                                        return I18n.trFor("cast", "Play replaces the running show");
                                     if (!transport.active)
-                                        return I18n.trFor("screencast", "Press play to start on %1").arg(win.deviceName);
+                                        return I18n.trFor("cast", "Press play to start on %1").arg(win.deviceName);
                                     if (win.service.preparing)
-                                        return I18n.trFor("screencast", "Preparing %1... %2%").arg(win.service.currentTitle).arg(Math.round(win.service.prepProgress * 100));
+                                        return I18n.trFor("cast", "Preparing %1... %2%").arg(win.service.currentTitle).arg(Math.round(win.service.prepProgress * 100));
                                     if (countdownColumn.countdown >= 0)
-                                        return I18n.trFor("screencast", "Next photo in %1 s").arg(Math.ceil(countdownColumn.countdown));
+                                        return I18n.trFor("cast", "Next photo in %1 s").arg(Math.ceil(countdownColumn.countdown));
                                     if (win.service.slideshowManual)
-                                        return I18n.trFor("screencast", "Manual");
-                                    return I18n.trFor("screencast", "Paused");
+                                        return I18n.trFor("cast", "Manual");
+                                    return I18n.trFor("cast", "Paused");
                                 }
                                 font.pixelSize: Theme.fontSizeSmall
                                 color: Theme.surfaceVariantText
@@ -2413,7 +2413,7 @@ PluginComponent {
                         DActionButton {
                             anchors.verticalCenter: parent.verticalCenter
                             iconName: "replay_10"
-                            Accessible.name: I18n.trFor("screencast", "Back 10 seconds")
+                            Accessible.name: I18n.trFor("cast", "Back 10 seconds")
                             onClicked: win.service.skip(-10)
                         }
 
@@ -2447,7 +2447,7 @@ PluginComponent {
                         DActionButton {
                             anchors.verticalCenter: parent.verticalCenter
                             iconName: "forward_10"
-                            Accessible.name: I18n.trFor("screencast", "Forward 10 seconds")
+                            Accessible.name: I18n.trFor("cast", "Forward 10 seconds")
                             onClicked: win.service.skip(10)
                         }
 
@@ -2456,7 +2456,7 @@ PluginComponent {
                             anchors.verticalCenter: parent.verticalCenter
                             visible: win.service.session?.subtitles ?? false
                             iconName: (win.service.session?.subtitlesOn ?? false) ? "subtitles" : "subtitles_off"
-                            Accessible.name: I18n.trFor("screencast", "Subtitles")
+                            Accessible.name: I18n.trFor("cast", "Subtitles")
                             onClicked: win.service.mediaCommand("subtitles", {
                                 "on": !(win.service.session?.subtitlesOn ?? false)
                             })

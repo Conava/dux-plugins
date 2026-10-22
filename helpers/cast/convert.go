@@ -168,7 +168,7 @@ func cacheFile(suffix string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(cache, "dms", "screencast")
+	dir := filepath.Join(cache, "dms", "cast")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}

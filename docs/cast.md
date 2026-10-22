@@ -1,4 +1,4 @@
-# Screencast: design
+# Cast: design
 
 Mirror the screen, with sound, to a Chromecast or an AirPlay receiver, from the bar, the Control
 Center or the island. Successor to the closed shell PR
@@ -23,7 +23,7 @@ UxPlay receiver, and tested by community volunteers once Chromecast works.
 ## Architecture
 
 ```
-Screencast plugin (QML)  ──JSON lines over stdin/stdout──►  screencast-helper (Go, no CGO)
+Cast plugin (QML)      ──JSON lines over stdin/stdout──►  cast-helper (Go, no CGO)
   bar pill + popout                                            │
   Control Center tile + detail panel                           ├─ avahi (D-Bus)            discovery
   settings, setup page                                         ├─ xdg-desktop-portal       screen access
@@ -34,16 +34,16 @@ Screencast plugin (QML)  ──JSON lines over stdin/stdout──►  screencast
 ```
 
 **Plugin:** one `composite` plugin with two surfaces.
-- **`daemon` (`ScreencastService.qml`):** owns the helper process and holds the state the UI binds
+- **`daemon` (`CastService.qml`):** owns the helper process and holds the state the UI binds
   to. The shell creates it once and destroys it when the plugin is disabled or reloaded, which stops
   the helper. A `qmldir` singleton would survive both.
-- **`widget` (`ScreencastWidget.qml`):** the bar pill, the popout and the Control Center tile and
+- **`widget` (`CastWidget.qml`):** the bar pill, the popout and the Control Center tile and
   detail panel. Every instance reads the daemon through `pluginService.pluginDaemonInstances`.
 - **One file per surface:** reload only recompiles a plugin's entry files, so shared sibling files
   would go stale. The device panel is an inline component of the widget, and Settings keeps its own
   copy of the option lists.
 
-**Helper:** a single Go binary built without CGO, `screencast-helper`, in `screencast-helper/` at the repo root.
+**Helper:** a single Go binary built without CGO, `cast-helper`, in `cast-helper/` at the repo root.
 - **Lifetime:** runs only while the popout or detail panel is open, or a cast is running. Exits on
   stdin EOF, so it can't outlive the shell.
 - **Owns:** discovery, sessions, the portal request, the capture pipeline, and the MPRIS player.
@@ -87,7 +87,7 @@ pushed on every change, so the plugin never polls.
    "queue": [{"title", "kind": "image|video|audio|link|youtube", "status": "waiting|preparing|ready|failed",
               "progress", "artist", "error"?, "feature"?, "missing"?}]}}
 {"event": "restoreToken", "token": "…"}                  // the plugin stores it in its state
-{"event": "thumbnail", "path": "…", "file": "~/.cache/dms/screencast/thumbs/<hash>.jpg" | ""}
+{"event": "thumbnail", "path": "…", "file": "~/.cache/dms/cast/thumbs/<hash>.jpg" | ""}
 {"event": "playlist", "path": "…", "items": [{"path"?, "url"?, "title"?}]}  // entries in order
 {"event": "error", "code": "missingDependency|portalDenied|deviceLost|receiverStopped|…", "detail": "…",
  "feature"?: "mirroring", "missing"?: ["gst-plugin-va"]}
@@ -119,7 +119,7 @@ pushed on every change, so the plugin never polls.
 - **Position:** the receiver reports it only on changes. The plugin counts on from `positionAt`
   while playing, with a timer that runs only while the panel is on screen.
 - **MPRIS:** file playback exposes play/pause, next/previous and seek; mirroring stays display-only.
-- **Debugging:** `SCREENCAST_DEBUG=1` in the shell's environment logs every Cast message and HTTP request.
+- **Debugging:** `CAST_DEBUG=1` in the shell's environment logs every Cast message and HTTP request.
 - **Error codes** map to translated strings in QML. The helper never sends user-facing text.
 
 ## Chromecast: Cast Streaming
@@ -218,7 +218,7 @@ Setting **Play sound on**: *TV only* (default) or *TV and this computer*.
 
 ## Island and media widgets
 
-The helper registers an MPRIS player (`org.mpris.MediaPlayer2.screencast`) while mirroring: title
+The helper registers an MPRIS player (`org.mpris.MediaPlayer2.cast`) while mirroring: title
 "Casting to <device>", playback status Playing, CanPlay true (playerctl skips players without it),
 no artist (so no lyrics or artwork lookups). The island, the media widget, the dash and `playerctl`
 show it. The shell's buttons only call play/pause and never Stop, so the player is display-only and
@@ -247,8 +247,8 @@ the cast is ended from the pill or tile. Whichever player was playing first stay
 - Secondary text: device name or "Off".
 - With no favorite set, the toggle shows a toast; the plugin API can't open the detail panel.
 
-Every user-facing string goes through `I18n.trFor("screencast", …)`. Plugin id: `screencast`,
-directory `Screencast/`.
+Every user-facing string goes through `I18n.trFor("cast", …)`. Plugin id: `cast`,
+directory `Cast/`, helper in `helpers/cast/`.
 
 ## Settings
 
@@ -272,14 +272,14 @@ time, as a notification (`dms notify --action`) with a button that opens the set
 
 | Missing | What the plugin offers |
 |---|---|
-| helper / doubletake | **Install** (default): download the pinned release into `~/.local/share/dms/screencast/bin`, verify its SHA-256, done. **Install system-wide**: the same files into `/usr/local/bin` via `pkexec install`, hidden on NixOS. **Build from source**: `go build` the helper from the plugin's own checkout and doubletake from its pinned tag; shown only when `go` is on PATH. |
+| helper / doubletake | **Install** (default): download the pinned release into `~/.local/share/dms/cast/bin`, verify its SHA-256, done. **Install system-wide**: the same files into `/usr/local/bin` via `pkexec install`, hidden on NixOS. **Build from source**: `go build` the helper from the plugin's own checkout and doubletake from its pinned tag; shown only when `go` is on PATH. |
 | avahi not running | The command for the distro (`sudo systemctl enable --now avahi-daemon`; on NixOS `services.avahi.enable = true;`) with a copy button |
 | GStreamer elements | The package names for the distro (Arch, Fedora, Debian/Ubuntu, openSUSE, Void, NixOS), detected from `/etc/os-release`, with a copy button |
 
 - **Pinning:** versions and checksums live in the plugin source. A plugin update that pins a newer
   helper shows "Update helper".
 - **Lookup:** a helper or doubletake on `PATH` is used before the downloaded copy.
-- **Releases:** built by GitHub Actions for amd64 and arm64 on a `screencast-helper-v*` tag,
+- **Releases:** built by GitHub Actions for amd64 and arm64 on a `cast-helper-v*` tag,
   `CGO_ENABLED=0`, with a checksums file.
 
 ## Safety and cost
@@ -293,7 +293,7 @@ time, as a notification (`dms notify --action`) with a button that opens the set
 - **Idle cost is zero.** No helper process, no timers. Discovery runs only while a device list is on
   screen.
 - **Cleanup:** the user's default output is never changed, so nothing needs restoring. Stopping
-  closes the portal session and the receiver app; remuxed copies in `~/.cache/dms/screencast` are
+  closes the portal session and the receiver app; remuxed copies in `~/.cache/dms/cast` are
   deleted after playback and on the next start after a crash.
 
 ## Milestones

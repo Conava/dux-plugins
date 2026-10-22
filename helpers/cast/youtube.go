@@ -109,7 +109,7 @@ func playOnYouTube(ctx context.Context, cast *castConn, transport string, v yout
 	token := tokens.Screens[0].LoungeToken
 
 	body, err = loungePost(ctx, "bc/bind", url.Values{"RID": {"0"}, "VER": {"8"}, "CVER": {"1"}}, token, url.Values{
-		"device": {"REMOTE_CONTROL"}, "id": {remoteID()}, "name": {"Screencast"}, "mdx-version": {"3"},
+		"device": {"REMOTE_CONTROL"}, "id": {remoteID()}, "name": {"Cast"}, "mdx-version": {"3"},
 		"pairing_type": {"cast"}, "app": {"android-phone-13.14.55"},
 	})
 	if err != nil {

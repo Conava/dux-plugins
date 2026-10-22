@@ -35,7 +35,7 @@ func (h *helper) thumbnail(file string, size int) {
 		return
 	}
 	sum := sha1.Sum(fmt.Appendf(nil, "%s|%d|%d|%d", file, size, st.Size(), st.ModTime().UnixNano()))
-	out := filepath.Join(cache, "dms", "screencast", "thumbs", hex.EncodeToString(sum[:])+".jpg")
+	out := filepath.Join(cache, "dms", "cast", "thumbs", hex.EncodeToString(sum[:])+".jpg")
 	if _, err := os.Stat(out); err == nil {
 		reply(out)
 		return

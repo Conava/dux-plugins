@@ -114,7 +114,7 @@ func openScreencast(ctx context.Context, restoreToken string) (*portalSession, s
 }
 
 func token(prefix string) string {
-	return fmt.Sprintf("screencast_%s_%d", prefix, tokenSeq.Add(1))
+	return fmt.Sprintf("cast_%s_%d", prefix, tokenSeq.Add(1))
 }
 
 // portalRequest calls a portal method returning a Request and waits for its

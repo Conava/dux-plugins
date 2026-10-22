@@ -1,0 +1,18 @@
+{
+    "id": "cast",
+    "name": "Cast",
+    "description": "Mirror your screen to Chromecast, Google TV and AirPlay devices, and play files, music, playlists, slideshows and links on Chromecast",
+    "version": "0.0.1",
+    "author": "Marlon Kranz",
+    "type": "composite",
+    "capabilities": ["daemon", "dankbar-widget", "control-center"],
+    "icon": "cast",
+    "components": {
+        "daemon": "./CastService.qml",
+        "widget": "./CastWidget.qml"
+    },
+    "settings": "./Settings.qml",
+    "requires_dms": ">=2.0.0",
+    "dependencies": ["cast-helper", "avahi", "gstreamer", "gst-plugins-base", "gst-plugins-bad", "gst-plugin-pipewire", "gst-plugin-va"],
+    "permissions": ["settings_read", "settings_write", "process", "network"]
+}

@@ -6,7 +6,7 @@
 #   ./dev check [PLUGIN...]      validate manifests (all plugins when none given)
 #   ./dev link PLUGIN            symlink PLUGIN into the running shell's plugin dir and rescan
 #   ./dev reload PLUGIN          reload PLUGIN in the running shell and print its status
-#                                (link and reload also build <id>-helper/ if the plugin has one)
+#                                (link and reload also build helpers/<id>/ if the plugin has one)
 #   ./dev unlink PLUGIN          remove the symlink again
 #   ./dev strings PLUGIN [LOCALE] sync translations/*.json (or start LOCALE.json) with the code
 #
@@ -102,10 +102,10 @@ sys.exit(failed)
 EOF
 }
 
-# A plugin with a Go helper keeps it in <id>-helper/ at the repo root. Build it into the
+# A plugin with a Go helper keeps it in helpers/<id>/. Build it into the
 # path the plugin looks in when the helper isn't on PATH.
 build_helper() {
-    local id=$1 src="$root/$1-helper"
+    local id=$1 src="$root/helpers/$1"
     [ -f "$src/go.mod" ] || return 0
     local out="${XDG_DATA_HOME:-$HOME/.local/share}/dms/$id/bin/$id-helper"
     (cd "$src" && CGO_ENABLED=0 go build -o "$out" .) || die "building $id-helper failed"

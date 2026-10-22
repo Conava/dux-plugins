@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	mprisName   = "org.mpris.MediaPlayer2.screencast"
+	mprisName   = "org.mpris.MediaPlayer2.cast"
 	mprisPath   = dbus.ObjectPath("/org/mpris/MediaPlayer2")
 	mprisRoot   = "org.mpris.MediaPlayer2"
 	mprisPlayer = "org.mpris.MediaPlayer2.Player"
@@ -81,7 +81,7 @@ func (p *Player) playPauseOr(fallback func(), only string) {
 // identity as the subtitle and skips its lyrics and artwork lookups.
 func metadata(title string, length float64) map[string]dbus.Variant {
 	md := map[string]dbus.Variant{
-		"mpris:trackid": dbus.MakeVariant(dbus.ObjectPath("/org/mpris/MediaPlayer2/screencast/cast")),
+		"mpris:trackid": dbus.MakeVariant(dbus.ObjectPath("/org/mpris/MediaPlayer2/cast/item")),
 		"xesam:title":   dbus.MakeVariant(title),
 	}
 	if length > 0 {
@@ -96,7 +96,7 @@ func StartPlayer(conn *dbus.Conn, title string, c playerControls) (*Player, erro
 	ro := func(v any) *prop.Prop { return &prop.Prop{Value: v, Emit: prop.EmitTrue} }
 	props, err := prop.Export(conn, mprisPath, prop.Map{
 		mprisRoot: {
-			"Identity":            ro("Screencast"),
+			"Identity":            ro("Cast"),
 			"CanQuit":             ro(false),
 			"CanRaise":            ro(false),
 			"HasTrackList":        ro(false),
@@ -142,7 +142,7 @@ func StartPlayer(conn *dbus.Conn, title string, c playerControls) (*Player, erro
 		return nil, err
 	}
 	if reply != dbus.RequestNameReplyPrimaryOwner {
-		return nil, errors.New("another screencast player owns " + mprisName)
+		return nil, errors.New("another cast player owns " + mprisName)
 	}
 	return p, nil
 }

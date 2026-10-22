@@ -121,7 +121,7 @@ func (a *airplaySession) run() (code string, err error) {
 	if runtime == "" {
 		runtime = os.TempDir()
 	}
-	dir := filepath.Join(runtime, "dms-screencast")
+	dir := filepath.Join(runtime, "dms-cast")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "airplayFailed", err
 	}
@@ -281,7 +281,7 @@ func doubletakePath() string {
 	return ""
 }
 
-// dataDir is the plugin's data folder, ~/.local/share/dms/screencast.
+// dataDir is the plugin's data folder, ~/.local/share/dms/cast.
 func dataDir() (string, error) {
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {
@@ -291,6 +291,6 @@ func dataDir() (string, error) {
 		}
 		base = filepath.Join(home, ".local", "share")
 	}
-	dir := filepath.Join(base, "dms", "screencast")
+	dir := filepath.Join(base, "dms", "cast")
 	return dir, os.MkdirAll(dir, 0o700)
 }

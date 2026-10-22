@@ -1,4 +1,4 @@
-// Command screencast-helper does the casting for the Screencast plugin. It
+// Command cast-helper does the casting for the Cast plugin. It
 // reads one JSON command per line on stdin and writes one JSON event per line
 // on stdout, and exits when stdin closes.
 package main
@@ -500,7 +500,7 @@ func removeStaleRemuxes() {
 	if err != nil {
 		return
 	}
-	stale, _ := filepath.Glob(filepath.Join(cache, "dms", "screencast", "[0-9]*-*"))
+	stale, _ := filepath.Glob(filepath.Join(cache, "dms", "cast", "[0-9]*-*"))
 	for _, f := range stale {
 		os.Remove(f)
 	}

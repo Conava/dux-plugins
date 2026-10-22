@@ -1,4 +1,4 @@
-module screencast-helper
+module cast-helper
 
 go 1.25.0
 

@@ -16,12 +16,12 @@ PluginSettings {
     // Custom is offered once a custom configuration was saved from Advanced.
     readonly property bool hasCustom: String(value("resolution", "")) !== ""
 
-    pluginId: "screencast"
+    pluginId: "cast"
 
     // loadValue isn't reactive; bindings read rev so they update after a save.
     property int rev: 0
     property bool advancedOpen: false
-    readonly property var service: pluginService?.pluginDaemonInstances["screencast"] ?? null
+    readonly property var service: pluginService?.pluginDaemonInstances["cast"] ?? null
     readonly property var devices: service?.devices ?? []
     readonly property string quality: value("quality", "balanced")
     // Resolution, frame rate and bitrate the quality preset stands for.
@@ -75,46 +75,46 @@ PluginSettings {
         }
     }
 
-    // A copy of the choices in ScreencastWidget.qml: the shell recompiles only a
+    // A copy of the choices in CastWidget.qml: the shell recompiles only a
     // plugin's own entry files on reload, so a shared sibling file goes stale.
-    component ScreencastOptions: QtObject {
+    component CastOptions: QtObject {
         readonly property var audioTargets: [
             {
-                "label": I18n.trFor("screencast", "This device"),
+                "label": I18n.trFor("cast", "This device"),
                 "value": "local"
             },
             {
-                "label": I18n.trFor("screencast", "Cast device"),
+                "label": I18n.trFor("cast", "Cast device"),
                 "value": "tv"
             },
             {
-                "label": I18n.trFor("screencast", "Both"),
+                "label": I18n.trFor("cast", "Both"),
                 "value": "both"
             }
         ]
 
         readonly property var qualities: [
             {
-                "label": I18n.trFor("screencast", "Smooth (1080p, 60 fps)"),
+                "label": I18n.trFor("cast", "Smooth (1080p, 60 fps)"),
                 "value": "smooth"
             },
             {
-                "label": I18n.trFor("screencast", "Balanced (1080p, 30 fps)"),
+                "label": I18n.trFor("cast", "Balanced (1080p, 30 fps)"),
                 "value": "balanced"
             },
             {
-                "label": I18n.trFor("screencast", "Low bandwidth (720p, 30 fps)"),
+                "label": I18n.trFor("cast", "Low bandwidth (720p, 30 fps)"),
                 "value": "low"
             },
             {
-                "label": I18n.trFor("screencast", "Custom"),
+                "label": I18n.trFor("cast", "Custom"),
                 "value": "custom"
             }
         ]
 
         readonly property var codecs: [
             {
-                "label": I18n.trFor("screencast", "Automatic"),
+                "label": I18n.trFor("cast", "Automatic"),
                 "value": "auto"
             },
             {
@@ -129,11 +129,11 @@ PluginSettings {
 
         readonly property var intervals: [
             {
-                "label": I18n.trFor("screencast", "Manual"),
+                "label": I18n.trFor("cast", "Manual"),
                 "value": "0"
             }
         ].concat([5, 8, 15, 30].map(n => ({
-                        "label": I18n.trFor("screencast", "%1 seconds").arg(n),
+                        "label": I18n.trFor("cast", "%1 seconds").arg(n),
                         "value": String(n)
                     })))
 
@@ -146,7 +146,7 @@ PluginSettings {
         }
     }
 
-    ScreencastOptions {
+    CastOptions {
         id: choices
     }
 
@@ -187,7 +187,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
             iconName: "content_copy"
             iconSize: Theme.iconSizeSmall
-            tooltipText: I18n.trFor("screencast", "Copy")
+            tooltipText: I18n.trFor("cast", "Copy")
             Accessible.name: tooltipText
             onClicked: Quickshell.execDetached(["dms", "cl", "copy", commandRow.command])
         }
@@ -248,8 +248,8 @@ PluginSettings {
         iconName: modelData.present ? "check_circle" : "error"
         iconColor: modelData.present ? Theme.success : (modelData.required ? Theme.error : Theme.warning)
         title: modelData.package
-        subtitle: I18n.trFor("screencast", "Used for: %1").arg(service?.featuresText(modelData.features) ?? "")
-        trailingBadge: modelData.present ? I18n.trFor("screencast", "Installed") : I18n.trFor("screencast", "Missing")
+        subtitle: I18n.trFor("cast", "Used for: %1").arg(service?.featuresText(modelData.features) ?? "")
+        trailingBadge: modelData.present ? I18n.trFor("cast", "Installed") : I18n.trFor("cast", "Missing")
         trailingBadgeColor: modelData.present ? Theme.surfaceVariantText : (modelData.required ? Theme.error : Theme.warning)
 
         body: PackageHints {
@@ -268,10 +268,10 @@ PluginSettings {
                 id: defaultDevice
 
                 readonly property string favoriteName: root.value("favoriteName", "")
-                readonly property string noneLabel: I18n.trFor("screencast", "None")
+                readonly property string noneLabel: I18n.trFor("cast", "None")
 
                 iconName: "cast"
-                text: I18n.trFor("screencast", "Default device")
+                text: I18n.trFor("cast", "Default device")
                 // Devices seen before count too, so one that is switched off can be picked.
                 readonly property var deviceChoices: {
                     const byId = {};
@@ -303,7 +303,7 @@ PluginSettings {
 
             SettingsDropdownRow {
                 iconName: "speaker"
-                text: I18n.trFor("screencast", "Audio output")
+                text: I18n.trFor("cast", "Audio output")
                 options: choices.audioTargets.map(o => o.label)
                 currentValue: choices.labelOf(choices.audioTargets, root.value("audioTarget", "tv"))
                 onValueChanged: value => root.save("audioTarget", choices.valueOf(choices.audioTargets, value))
@@ -311,14 +311,14 @@ PluginSettings {
         }
 
         SettingsSectionLabel {
-            text: I18n.trFor("screencast", "Screen mirroring")
+            text: I18n.trFor("cast", "Screen mirroring")
         }
 
         SettingsGroup {
             SettingsDropdownRow {
                 iconName: "high_quality"
-                text: I18n.trFor("screencast", "Quality")
-                trailingBadge: root.experimental ? I18n.trFor("screencast", "Experimental") : ""
+                text: I18n.trFor("cast", "Quality")
+                trailingBadge: root.experimental ? I18n.trFor("cast", "Experimental") : ""
                 trailingBadgeColor: Theme.warning
                 optionIconMap: ({
                         [choices.labelOf(choices.qualities, "smooth")]: "science"
@@ -330,7 +330,7 @@ PluginSettings {
         }
 
         SettingsSectionLabel {
-            text: I18n.trFor("screencast", "Advanced")
+            text: I18n.trFor("cast", "Advanced")
             collapsible: true
             expanded: root.advancedOpen
             onToggleRequested: root.advancedOpen = !root.advancedOpen
@@ -341,8 +341,8 @@ PluginSettings {
 
             SettingsButtonGroupRow {
                 iconName: "aspect_ratio"
-                text: I18n.trFor("screencast", "Resolution")
-                model: [I18n.trFor("screencast", "%1p").arg(1080), I18n.trFor("screencast", "%1p").arg(720)]
+                text: I18n.trFor("cast", "Resolution")
+                model: [I18n.trFor("cast", "%1p").arg(1080), I18n.trFor("cast", "%1p").arg(720)]
                 values: ["1080", "720"]
                 value: root.effective[0]
                 fallbackValue: "1080"
@@ -354,10 +354,10 @@ PluginSettings {
 
             SettingsButtonGroupRow {
                 iconName: "speed"
-                text: I18n.trFor("screencast", "Frame rate")
-                trailingBadge: root.experimental ? I18n.trFor("screencast", "Experimental") : ""
+                text: I18n.trFor("cast", "Frame rate")
+                trailingBadge: root.experimental ? I18n.trFor("cast", "Experimental") : ""
                 trailingBadgeColor: Theme.warning
-                model: [I18n.trFor("screencast", "%1 fps").arg(60), I18n.trFor("screencast", "%1 fps").arg(30)]
+                model: [I18n.trFor("cast", "%1 fps").arg(60), I18n.trFor("cast", "%1 fps").arg(30)]
                 values: ["60", "30"]
                 value: root.effective[1]
                 fallbackValue: "30"
@@ -369,11 +369,11 @@ PluginSettings {
 
             SettingsSliderRow {
                 iconName: "network_check"
-                text: I18n.trFor("screencast", "Bitrate")
-                minimumLabel: I18n.trFor("screencast", "Automatic")
+                text: I18n.trFor("cast", "Bitrate")
+                minimumLabel: I18n.trFor("cast", "Automatic")
                 minimum: 0
                 maximum: 40
-                unit: I18n.trFor("screencast", "Mbit/s")
+                unit: I18n.trFor("cast", "Mbit/s")
                 value: root.effective[2]
                 onSliderDragFinished: finalValue => {
                     if (finalValue !== root.effective[2])
@@ -383,7 +383,7 @@ PluginSettings {
 
             SettingsDropdownRow {
                 iconName: "movie_filter"
-                text: I18n.trFor("screencast", "Video codec")
+                text: I18n.trFor("cast", "Video codec")
                 options: choices.codecs.map(o => o.label)
                 currentValue: choices.labelOf(choices.codecs, root.value("codec", "auto"))
                 onValueChanged: value => root.save("codec", choices.valueOf(choices.codecs, value))
@@ -391,11 +391,11 @@ PluginSettings {
 
             SettingsSliderRow {
                 iconName: "timer"
-                text: I18n.trFor("screencast", "Latency")
+                text: I18n.trFor("cast", "Latency")
                 minimum: 100
                 maximum: 1000
                 step: 50
-                unit: I18n.trFor("screencast", "ms")
+                unit: I18n.trFor("cast", "ms")
                 value: root.value("latency", 200)
                 onSliderDragFinished: finalValue => root.save("latency", finalValue)
 
@@ -405,19 +405,19 @@ PluginSettings {
                     iconName: "info"
                     iconSize: Theme.iconSizeMedium
                     iconColor: Theme.surfaceVariantText
-                    tooltipText: I18n.trFor("screencast", "Lower reacts faster; higher plays smoother on a weak network")
+                    tooltipText: I18n.trFor("cast", "Lower reacts faster; higher plays smoother on a weak network")
                 }
             }
         }
 
         SettingsSectionLabel {
-            text: I18n.trFor("screencast", "Media playback")
+            text: I18n.trFor("cast", "Media playback")
         }
 
         SettingsGroup {
             SettingsDropdownRow {
                 iconName: "slideshow"
-                text: I18n.trFor("screencast", "Slideshow interval")
+                text: I18n.trFor("cast", "Slideshow interval")
                 options: choices.intervals.map(o => o.label)
                 currentValue: choices.labelOf(choices.intervals, String(root.value("slideshowInterval", "8")))
                 onValueChanged: value => root.save("slideshowInterval", choices.valueOf(choices.intervals, value))
@@ -425,21 +425,21 @@ PluginSettings {
 
             SettingsToggleRow {
                 iconName: "photo_size_select_large"
-                text: I18n.trFor("screencast", "Compress large photos")
+                text: I18n.trFor("cast", "Compress large photos")
                 checked: root.value("shrinkPhotos", false)
                 onToggled: checked => root.save("shrinkPhotos", checked)
             }
 
             SettingsToggleRow {
                 iconName: "autorenew"
-                text: I18n.trFor("screencast", "Convert to compatible formats")
+                text: I18n.trFor("cast", "Convert to compatible formats")
                 checked: root.value("convertVideos", true)
                 onToggled: checked => root.save("convertVideos", checked)
             }
 
             SettingsTextFieldRow {
                 iconName: "lan"
-                text: I18n.trFor("screencast", "Port")
+                text: I18n.trFor("cast", "Port")
                 value: root.port
                 validator: IntValidator {
                     bottom: 1024
@@ -460,13 +460,13 @@ PluginSettings {
         }
 
         SettingsSectionLabel {
-            text: I18n.trFor("screencast", "AirPlay")
+            text: I18n.trFor("cast", "AirPlay")
         }
 
         SettingsGroup {
             SettingsTextFieldRow {
                 iconName: "lan"
-                text: I18n.trFor("screencast", "UDP ports")
+                text: I18n.trFor("cast", "UDP ports")
                 value: root.airplayPorts
                 validator: RegularExpressionValidator {
                     regularExpression: /^\d{4,5}(-\d{4,5})?$/
@@ -486,14 +486,14 @@ PluginSettings {
         }
 
         SettingsSectionLabel {
-            text: I18n.trFor("screencast", "Bar")
+            text: I18n.trFor("cast", "Bar")
         }
 
         SettingsGroup {
             SettingsButtonGroupRow {
                 iconName: "visibility"
-                text: I18n.trFor("screencast", "Show the pill")
-                model: [I18n.trFor("screencast", "Always"), I18n.trFor("screencast", "While casting")]
+                text: I18n.trFor("cast", "Show the pill")
+                model: [I18n.trFor("cast", "Always"), I18n.trFor("cast", "While casting")]
                 values: [false, true]
                 value: root.value("pillOnlyWhileCasting", false)
                 fallbackValue: false
@@ -502,25 +502,25 @@ PluginSettings {
 
             SettingsToggleRow {
                 iconName: "label"
-                text: I18n.trFor("screencast", "Show the device name")
-                description: I18n.trFor("screencast", "Horizontal bars only")
+                text: I18n.trFor("cast", "Show the device name")
+                description: I18n.trFor("cast", "Horizontal bars only")
                 checked: root.value("showDeviceName", true)
                 onToggled: checked => root.save("showDeviceName", checked)
             }
         }
 
         SettingsSectionLabel {
-            text: I18n.trFor("screencast", "Helper")
+            text: I18n.trFor("cast", "Helper")
         }
 
         SettingsGroup {
             SettingsRow {
                 iconName: "memory"
-                title: "screencast-helper"
+                title: "cast-helper"
                 subtitle: {
                     if (!root.service?.helperResolved)
                         return "";
-                    return root.service.helperPath || I18n.trFor("screencast", "Not installed");
+                    return root.service.helperPath || I18n.trFor("cast", "Not installed");
                 }
 
                 body: CommandRow {
@@ -534,7 +534,7 @@ PluginSettings {
                     anchors.verticalCenter: parent.verticalCenter
                     buttonHeight: Theme.buttonHeightXS
                     iconName: "open_in_new"
-                    text: I18n.trFor("screencast", "Installation guide")
+                    text: I18n.trFor("cast", "Installation guide")
                     backgroundColor: Theme.secondaryContainer
                     textColor: Theme.onSecondaryContainer
                     onClicked: Qt.openUrlExternally(root.service.installGuide)
@@ -545,7 +545,7 @@ PluginSettings {
         // Every package the helper can use, from its check report.
         SettingsSectionLabel {
             visible: !!root.service?.helperPath
-            text: I18n.trFor("screencast", "Packages")
+            text: I18n.trFor("cast", "Packages")
         }
 
         SettingsGroup {
@@ -560,17 +560,17 @@ PluginSettings {
                 iconColor: tone
                 title: {
                     if (requiredMissing)
-                        return I18n.trFor("screencast", "Required packages are missing");
+                        return I18n.trFor("cast", "Required packages are missing");
                     if (root.missingIds.length > 0)
-                        return I18n.trFor("screencast", "All required packages are installed");
-                    return I18n.trFor("screencast", "Everything is installed");
+                        return I18n.trFor("cast", "All required packages are installed");
+                    return I18n.trFor("cast", "Everything is installed");
                 }
                 subtitle: {
                     if (root.missingIds.length === 0)
                         return "";
                     if (!root.service?.knownDistro)
-                        return I18n.trFor("screencast", "Install these with your package manager");
-                    return requiredMissing ? "" : I18n.trFor("screencast", "Install the recommended packages for every feature");
+                        return I18n.trFor("cast", "Install these with your package manager");
+                    return requiredMissing ? "" : I18n.trFor("cast", "Install the recommended packages for every feature");
                 }
 
                 body: CommandRow {
@@ -584,7 +584,7 @@ PluginSettings {
                     anchors.verticalCenter: parent.verticalCenter
                     buttonHeight: Theme.buttonHeightXS
                     iconName: "refresh"
-                    text: I18n.trFor("screencast", "Check again")
+                    text: I18n.trFor("cast", "Check again")
                     backgroundColor: Theme.secondaryContainer
                     textColor: Theme.onSecondaryContainer
                     onClicked: root.service.recheck()
@@ -594,7 +594,7 @@ PluginSettings {
 
         SettingsSectionLabel {
             visible: !!root.service?.helperPath
-            text: I18n.trFor("screencast", "Required packages")
+            text: I18n.trFor("cast", "Required packages")
         }
 
         SettingsGroup {
@@ -603,7 +603,7 @@ PluginSettings {
             SettingsRow {
                 visible: root.deps.length === 0
                 iconName: "hourglass_top"
-                title: I18n.trFor("screencast", "Checking packages...")
+                title: I18n.trFor("cast", "Checking packages...")
             }
 
             Repeater {
@@ -617,7 +617,7 @@ PluginSettings {
 
         SettingsSectionLabel {
             visible: recommended.count > 0
-            text: I18n.trFor("screencast", "Recommended packages")
+            text: I18n.trFor("cast", "Recommended packages")
         }
 
         SettingsGroup {

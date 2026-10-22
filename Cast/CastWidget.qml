@@ -69,10 +69,10 @@ PluginComponent {
 
     function stateText() {
         if (!casting)
-            return busy ? I18n.trFor("screencast", "Connecting...") : I18n.trFor("screencast", "Not casting");
+            return busy ? I18n.trFor("cast", "Connecting...") : I18n.trFor("cast", "Not casting");
         if (session?.kind === "media")
-            return I18n.trFor("screencast", "Playing on %1").arg(deviceName);
-        return I18n.trFor("screencast", "Casting to %1").arg(deviceName);
+            return I18n.trFor("cast", "Playing on %1").arg(deviceName);
+        return I18n.trFor("cast", "Casting to %1").arg(deviceName);
     }
 
     Connections {
@@ -86,7 +86,7 @@ PluginComponent {
 
     function openSettings() {
         PopoutService.closeControlCenter();
-        PopoutService.openSettingsWithTab("plugin:screencast");
+        PopoutService.openSettingsWithTab("plugin:cast");
     }
 
     component LiveDot: StyledRect {
@@ -114,7 +114,7 @@ PluginComponent {
         iconName: "stop_circle"
         iconFilled: true
         iconColor: Theme.error
-        Accessible.name: I18n.trFor("screencast", "Stop casting")
+        Accessible.name: I18n.trFor("cast", "Stop casting")
         onClicked: service?.stopCast()
     }
 
@@ -163,7 +163,7 @@ PluginComponent {
             anchors.verticalCenter: parent.verticalCenter
             iconName: "content_copy"
             iconSize: Theme.iconSizeSmall
-            tooltipText: I18n.trFor("screencast", "Copy")
+            tooltipText: I18n.trFor("cast", "Copy")
             Accessible.name: tooltipText
             onClicked: Quickshell.execDetached(["dms", "cl", "copy", commandRow.command])
         }
@@ -351,7 +351,7 @@ PluginComponent {
                     anchors.verticalCenter: parent.verticalCenter
                     size: root.iconSize
                     iconName: root.service?.mediaPlaying ? "pause" : "play_arrow"
-                    Accessible.name: root.service?.mediaPlaying ? I18n.trFor("screencast", "Pause") : I18n.trFor("screencast", "Play")
+                    Accessible.name: root.service?.mediaPlaying ? I18n.trFor("cast", "Pause") : I18n.trFor("cast", "Play")
                     onClicked: root.service.togglePlay()
                 }
 
@@ -360,7 +360,7 @@ PluginComponent {
                     anchors.verticalCenter: parent.verticalCenter
                     size: root.iconSize
                     iconName: "skip_next"
-                    Accessible.name: I18n.trFor("screencast", "Next")
+                    Accessible.name: I18n.trFor("cast", "Next")
                     onClicked: root.service.mediaCommand("next")
                 }
 
@@ -445,7 +445,7 @@ PluginComponent {
                     visible: vpill.mode !== "preparing" && root.canToggle
                     size: root.iconSize - Theme.spacingXS * 2
                     iconName: root.service?.mediaPlaying ? "pause" : "play_arrow"
-                    Accessible.name: root.service?.mediaPlaying ? I18n.trFor("screencast", "Pause") : I18n.trFor("screencast", "Play")
+                    Accessible.name: root.service?.mediaPlaying ? I18n.trFor("cast", "Pause") : I18n.trFor("cast", "Play")
                     onClicked: root.service.togglePlay()
                 }
             }
@@ -465,7 +465,7 @@ PluginComponent {
         PopoutComponent {
             id: popout
 
-            headerText: I18n.trFor("screencast", "Screencast")
+            headerText: I18n.trFor("cast", "Cast")
             detailsText: root.stateText()
 
             headerActions: Component {
@@ -474,7 +474,7 @@ PluginComponent {
                     iconSize: CcMetrics.headerActionIconSize
                     iconName: "settings"
                     iconColor: Theme.surfaceText
-                    tooltipText: I18n.trFor("screencast", "Screencast settings")
+                    tooltipText: I18n.trFor("cast", "Cast settings")
                     Accessible.name: tooltipText
                     onClicked: {
                         if (popout.closePopout)
@@ -499,14 +499,14 @@ PluginComponent {
     }
 
     ccWidgetIcon: casting ? "cast_connected" : "cast"
-    ccWidgetPrimaryText: I18n.trFor("screencast", "Screencast")
+    ccWidgetPrimaryText: I18n.trFor("cast", "Cast")
     ccWidgetSecondaryText: {
         if (casting)
             return deviceName;
         if (busy)
-            return I18n.trFor("screencast", "Connecting...");
+            return I18n.trFor("cast", "Connecting...");
         const favorite = pluginData.favoriteName ?? "";
-        return favorite ? I18n.trFor("screencast", "Off • %1").arg(favorite) : I18n.trFor("screencast", "Off");
+        return favorite ? I18n.trFor("cast", "Off • %1").arg(favorite) : I18n.trFor("cast", "Off");
     }
     ccWidgetIsActive: casting || busy
     ccDetailHeight: Theme.listItemTwoLineHeight * 7
@@ -514,7 +514,7 @@ PluginComponent {
     onCcWidgetToggled: {
         if (service?.toggleFavorite())
             return;
-        ToastService?.showInfo(I18n.trFor("screencast", "Pin a device in the panel first"));
+        ToastService?.showInfo(I18n.trFor("cast", "Pin a device in the panel first"));
     }
 
     ccDetailContent: Component {
@@ -535,37 +535,37 @@ PluginComponent {
 
     // Choices for the panel's options; Settings.qml keeps a copy, since the
     // shell recompiles only a plugin's own entry files on reload.
-    component ScreencastOptions: QtObject {
+    component CastOptions: QtObject {
         readonly property var audioTargets: [
             {
-                "label": I18n.trFor("screencast", "This device"),
+                "label": I18n.trFor("cast", "This device"),
                 "value": "local"
             },
             {
-                "label": I18n.trFor("screencast", "Cast device"),
+                "label": I18n.trFor("cast", "Cast device"),
                 "value": "tv"
             },
             {
-                "label": I18n.trFor("screencast", "Both"),
+                "label": I18n.trFor("cast", "Both"),
                 "value": "both"
             }
         ]
 
         readonly property var qualities: [
             {
-                "label": I18n.trFor("screencast", "Smooth (1080p, 60 fps)"),
+                "label": I18n.trFor("cast", "Smooth (1080p, 60 fps)"),
                 "value": "smooth"
             },
             {
-                "label": I18n.trFor("screencast", "Balanced (1080p, 30 fps)"),
+                "label": I18n.trFor("cast", "Balanced (1080p, 30 fps)"),
                 "value": "balanced"
             },
             {
-                "label": I18n.trFor("screencast", "Low bandwidth (720p, 30 fps)"),
+                "label": I18n.trFor("cast", "Low bandwidth (720p, 30 fps)"),
                 "value": "low"
             },
             {
-                "label": I18n.trFor("screencast", "Custom"),
+                "label": I18n.trFor("cast", "Custom"),
                 "value": "custom"
             }
         ]
@@ -635,7 +635,7 @@ PluginComponent {
             if (!hasLink)
                 return;
             if (!sendTarget) {
-                ToastService?.showInfo(I18n.trFor("screencast", "Pick a cast device first"));
+                ToastService?.showInfo(I18n.trFor("cast", "Pick a cast device first"));
                 return;
             }
             service.playLink(sendTarget.id, link.trim());
@@ -644,7 +644,7 @@ PluginComponent {
 
         function pickFile() {
             if (!sendTarget) {
-                ToastService?.showInfo(I18n.trFor("screencast", "Pick a cast device first"));
+                ToastService?.showInfo(I18n.trFor("cast", "Pick a cast device first"));
                 return;
             }
             pickDevice = sendTarget.id;
@@ -663,15 +663,15 @@ PluginComponent {
             const name = service.sessionDevice?.name ?? "";
             switch (session?.phase) {
             case "authorizing":
-                return I18n.trFor("screencast", "Accept the cast on %1").arg(name);
+                return I18n.trFor("cast", "Accept the cast on %1").arg(name);
             case "starting":
-                return I18n.trFor("screencast", "Starting...");
+                return I18n.trFor("cast", "Starting...");
             case "pairing":
-                return I18n.trFor("screencast", "Pairing with AirPlay");
+                return I18n.trFor("cast", "Pairing with AirPlay");
             case "stopping":
-                return I18n.trFor("screencast", "Stopping...");
+                return I18n.trFor("cast", "Stopping...");
             }
-            return I18n.trFor("screencast", "Mirroring");
+            return I18n.trFor("cast", "Mirroring");
         }
 
         function mediaSubtitle() {
@@ -679,15 +679,15 @@ PluginComponent {
             if (service.currentEntry?.status === "failed")
                 return service.itemErrorText(service.currentEntry);
             if (service.preparing)
-                return I18n.trFor("screencast", "Preparing... %1%").arg(Math.round(service.prepProgress * 100));
+                return I18n.trFor("cast", "Preparing... %1%").arg(Math.round(service.prepProgress * 100));
             if (service.isQueue)
-                return (service.currentArtist ? service.currentArtist + " · " : "") + name + " · " + I18n.trFor("screencast", "%1 of %2").arg(service.sessionIndex + 1).arg(service.sessionQueue.length);
+                return (service.currentArtist ? service.currentArtist + " · " : "") + name + " · " + I18n.trFor("cast", "%1 of %2").arg(service.sessionIndex + 1).arg(service.sessionQueue.length);
             if (service.currentArtist)
                 return service.currentArtist + " · " + name;
             if (service.isLink)
                 return name + (/youtu/.test(service.currentItem.url) ? " · YouTube" : "");
             if (session?.playerState === "BUFFERING")
-                return name + " · " + I18n.trFor("screencast", "Loading...");
+                return name + " · " + I18n.trFor("cast", "Loading...");
             return name;
         }
 
@@ -695,8 +695,8 @@ PluginComponent {
             id: fileBrowserLoader
             active: false
             sourceComponent: FileBrowserSurfaceModal {
-                browserTitle: I18n.trFor("screencast", "Play on the cast device")
-                bucket: "screencast"
+                browserTitle: I18n.trFor("cast", "Play on the cast device")
+                bucket: "cast"
                 filters: panel.service ? panel.service.pickerFilters.concat(["*"]) : ["*"]
                 parentPopout: panel.parentPopout
                 onAccepted: paths => panel.service.playFile(panel.pickDevice, paths[0])
@@ -713,7 +713,7 @@ PluginComponent {
             width: parent.width
             visible: !panel.service
             iconName: "cast"
-            title: I18n.trFor("screencast", "Screencast is starting")
+            title: I18n.trFor("cast", "Cast is starting")
         }
 
         // Setup required
@@ -721,8 +721,8 @@ PluginComponent {
             width: parent.width
             visible: panel.helperMissing
             iconName: "build"
-            title: I18n.trFor("screencast", "Screencast helper not installed")
-            subtitle: I18n.trFor("screencast", "Download it with this command, or build it from source")
+            title: I18n.trFor("cast", "Cast helper not installed")
+            subtitle: I18n.trFor("cast", "Download it with this command, or build it from source")
 
             CommandRow {
                 width: parent.width
@@ -736,7 +736,7 @@ PluginComponent {
                 DButton {
                     buttonHeight: Theme.buttonHeightXS
                     iconName: "open_in_new"
-                    text: I18n.trFor("screencast", "Installation guide")
+                    text: I18n.trFor("cast", "Installation guide")
                     backgroundColor: Theme.secondaryContainer
                     textColor: Theme.onSecondaryContainer
                     onClicked: Qt.openUrlExternally(panel.service.installGuide)
@@ -745,7 +745,7 @@ PluginComponent {
                 DButton {
                     buttonHeight: Theme.buttonHeightXS
                     iconName: "refresh"
-                    text: I18n.trFor("screencast", "Check again")
+                    text: I18n.trFor("cast", "Check again")
                     onClicked: panel.service.findHelper()
                 }
             }
@@ -756,13 +756,13 @@ PluginComponent {
 
             CcEmptyState {
                 iconName: "build"
-                title: I18n.trFor("screencast", "A few things are missing")
+                title: I18n.trFor("cast", "A few things are missing")
             }
         }
 
         CcSectionLabel {
             visible: missingGroup.visible
-            text: I18n.trFor("screencast", "Missing")
+            text: I18n.trFor("cast", "Missing")
         }
 
         CcGroup {
@@ -780,7 +780,7 @@ PluginComponent {
                     iconName: "error"
                     iconColor: Theme.error
                     title: panel.service.packagesFor([modelData])[0] ?? modelData
-                    subtitle: dep ? I18n.trFor("screencast", "Required for: %1").arg(panel.service.featuresText(dep.features)) : ""
+                    subtitle: dep ? I18n.trFor("cast", "Required for: %1").arg(panel.service.featuresText(dep.features)) : ""
 
                     body: PackageHints {
                         width: parent.width
@@ -802,7 +802,7 @@ PluginComponent {
                     anchors.verticalCenter: parent.verticalCenter
                     buttonHeight: Theme.buttonHeightXS
                     iconName: "refresh"
-                    text: I18n.trFor("screencast", "Check again")
+                    text: I18n.trFor("cast", "Check again")
                     onClicked: panel.service.recheck()
                 }
             }
@@ -839,7 +839,7 @@ PluginComponent {
                     anchors.verticalCenter: parent.verticalCenter
                     buttonHeight: Theme.buttonHeightXS
                     iconName: panel.connecting ? "close" : "stop"
-                    text: panel.connecting ? I18n.trFor("screencast", "Cancel") : I18n.trFor("screencast", "Stop")
+                    text: panel.connecting ? I18n.trFor("cast", "Cancel") : I18n.trFor("cast", "Stop")
                     backgroundColor: panel.connecting ? Theme.secondaryContainer : Theme.error
                     textColor: panel.connecting ? Theme.onSecondaryContainer : Theme.onError
                     onClicked: panel.service.stopCast()
@@ -854,7 +854,7 @@ PluginComponent {
 
                 visible: panel.pairing
                 iconName: "password"
-                title: password ? I18n.trFor("screencast", "Enter the AirPlay password") : I18n.trFor("screencast", "Enter the code shown on %1").arg(panel.service?.sessionDevice?.name ?? "")
+                title: password ? I18n.trFor("cast", "Enter the AirPlay password") : I18n.trFor("cast", "Enter the code shown on %1").arg(panel.service?.sessionDevice?.name ?? "")
 
                 body: Row {
                     width: parent.width
@@ -863,7 +863,7 @@ PluginComponent {
                     DTextField {
                         id: codeField
                         width: parent.width - pairButton.width - parent.spacing
-                        placeholderText: pairRow.password ? I18n.trFor("screencast", "Password") : I18n.trFor("screencast", "Code")
+                        placeholderText: pairRow.password ? I18n.trFor("cast", "Password") : I18n.trFor("cast", "Code")
                         echoMode: pairRow.password ? TextInput.Password : TextInput.Normal
                         validator: RegularExpressionValidator {
                             regularExpression: pairRow.password ? /.*/ : /\d{0,8}/
@@ -875,7 +875,7 @@ PluginComponent {
                         id: pairButton
                         anchors.verticalCenter: parent.verticalCenter
                         buttonHeight: Theme.buttonHeightXS
-                        text: I18n.trFor("screencast", "Pair")
+                        text: I18n.trFor("cast", "Pair")
                         enabled: codeField.text !== ""
                         onClicked: {
                             panel.service.pair(codeField.text);
@@ -912,11 +912,11 @@ PluginComponent {
                 visible: !!warning && !panel.connecting
                 iconName: "info"
                 iconColor: Theme.surfaceVariantText
-                title: warning?.code === "airplaySound" ? I18n.trFor("screencast", "Sound plays on this computer") : I18n.trFor("screencast", "Sound also plays on this computer")
+                title: warning?.code === "airplaySound" ? I18n.trFor("cast", "Sound plays on this computer") : I18n.trFor("cast", "Sound also plays on this computer")
                 subtitle: {
                     if (warning?.code === "airplaySound")
-                        return I18n.trFor("screencast", "AirPlay would set the device to full volume");
-                    return warning?.missing?.length ? I18n.trFor("screencast", "Install %1 to play it only on the cast device").arg(panel.service.packagesFor(warning.missing).join(", ")) : "";
+                        return I18n.trFor("cast", "AirPlay would set the device to full volume");
+                    return warning?.missing?.length ? I18n.trFor("cast", "Install %1 to play it only on the cast device").arg(panel.service.packagesFor(warning.missing).join(", ")) : "";
                 }
 
                 body: Column {
@@ -1034,8 +1034,8 @@ PluginComponent {
                                 if (panel.service.hasTimeline)
                                     return panel.service.clock(panel.service.positionAt(panel.now));
                                 if (bar.countdown >= 0)
-                                    return I18n.trFor("screencast", "Next in %1 s").arg(Math.ceil(bar.countdown));
-                                return panel.service.slideshowManual ? I18n.trFor("screencast", "Manual") : I18n.trFor("screencast", "Paused");
+                                    return I18n.trFor("cast", "Next in %1 s").arg(Math.ceil(bar.countdown));
+                                return panel.service.slideshowManual ? I18n.trFor("cast", "Manual") : I18n.trFor("cast", "Paused");
                             }
                             font.pixelSize: Theme.fontSizeSmall
                             color: Theme.surfaceVariantText
@@ -1067,7 +1067,7 @@ PluginComponent {
                             visible: !!parent.queue || (panel.service?.hasTimeline ?? false)
                             iconName: parent.queue ? "skip_previous" : "replay_10"
                             enabled: !parent.queue || (panel.service?.sessionIndex ?? 0) > 0
-                            Accessible.name: parent.queue ? I18n.trFor("screencast", "Previous") : I18n.trFor("screencast", "Back 10 seconds")
+                            Accessible.name: parent.queue ? I18n.trFor("cast", "Previous") : I18n.trFor("cast", "Back 10 seconds")
                             onClicked: parent.queue ? panel.service.mediaCommand("previous") : panel.service.skip(-10)
                         }
 
@@ -1085,7 +1085,7 @@ PluginComponent {
                             radius: Theme.buttonRadius(width, height, buttonSize, pressed, checked)
                             iconName: manualPhoto ? "skip_next" : checked ? "pause" : "play_arrow"
                             enabled: !manualPhoto || panel.service.sessionIndex < panel.service.sessionQueue.length - 1
-                            Accessible.name: manualPhoto ? I18n.trFor("screencast", "Next") : checked ? I18n.trFor("screencast", "Pause") : I18n.trFor("screencast", "Play")
+                            Accessible.name: manualPhoto ? I18n.trFor("cast", "Next") : checked ? I18n.trFor("cast", "Pause") : I18n.trFor("cast", "Play")
                             onClicked: panel.service.togglePlay()
                         }
 
@@ -1094,7 +1094,7 @@ PluginComponent {
                             visible: (parent.queue && !(panel.service?.manualPhoto ?? false)) || (panel.service?.hasTimeline ?? false)
                             iconName: parent.queue ? "skip_next" : "forward_10"
                             enabled: !parent.queue || panel.service.sessionIndex < panel.service.sessionQueue.length - 1
-                            Accessible.name: parent.queue ? I18n.trFor("screencast", "Next") : I18n.trFor("screencast", "Forward 10 seconds")
+                            Accessible.name: parent.queue ? I18n.trFor("cast", "Next") : I18n.trFor("cast", "Forward 10 seconds")
                             onClicked: parent.queue ? panel.service.mediaCommand("next") : panel.service.skip(10)
                         }
                     }
@@ -1123,7 +1123,7 @@ PluginComponent {
             CcToggleRow {
                 visible: panel.session?.subtitles ?? false
                 iconName: "subtitles"
-                text: I18n.trFor("screencast", "Subtitles")
+                text: I18n.trFor("cast", "Subtitles")
                 checked: panel.session?.subtitlesOn ?? false
                 onToggled: checked => panel.service.mediaCommand("subtitles", {
                         "on": checked
@@ -1136,7 +1136,7 @@ PluginComponent {
                     visible: !(panel.service?.isLink ?? true) && !(panel.service?.preparing ?? true)
                     buttonHeight: Theme.buttonHeightXS
                     iconName: "view_carousel"
-                    text: panel.service?.queueFromLibrary ? I18n.trFor("screencast", "Open the player") : I18n.trFor("screencast", "Open in player")
+                    text: panel.service?.queueFromLibrary ? I18n.trFor("cast", "Open the player") : I18n.trFor("cast", "Open in player")
                     backgroundColor: Theme.secondaryContainer
                     textColor: Theme.onSecondaryContainer
                     onClicked: panel.openPlayer(panel.service.queueFromLibrary ? "" : (panel.service.currentItem?.path ?? ""))
@@ -1146,7 +1146,7 @@ PluginComponent {
                     anchors.verticalCenter: parent.verticalCenter
                     buttonHeight: Theme.buttonHeightXS
                     iconName: "stop"
-                    text: I18n.trFor("screencast", "Stop")
+                    text: I18n.trFor("cast", "Stop")
                     backgroundColor: Theme.errorContainer
                     textColor: Theme.onErrorContainer
                     onClicked: panel.service.stopCast()
@@ -1191,7 +1191,7 @@ PluginComponent {
 
                     iconName: panel.service.deviceIcon(modelData)
                     title: modelData.name
-                    subtitle: isStarting ? I18n.trFor("screencast", "Connecting...") : (modelData.model ?? "")
+                    subtitle: isStarting ? I18n.trFor("cast", "Connecting...") : (modelData.model ?? "")
                     clickable: !panel.service.starting
                     onClicked: panel.service.startCast(modelData.id)
 
@@ -1205,11 +1205,11 @@ PluginComponent {
                         model: [
                             {
                                 "icon": "cast",
-                                "tooltip": I18n.trFor("screencast", "Mirror over Chromecast")
+                                "tooltip": I18n.trFor("cast", "Mirror over Chromecast")
                             },
                             {
                                 "icon": "airplay",
-                                "tooltip": I18n.trFor("screencast", "Mirror over AirPlay")
+                                "tooltip": I18n.trFor("cast", "Mirror over AirPlay")
                             }
                         ]
                         currentIndex: panel.service.mirrorProtocol(deviceRow.modelData) === "airplay" ? 1 : 0
@@ -1233,7 +1233,7 @@ PluginComponent {
         // Send to: other devices take over a running cast; the rows below play on the target.
         CcSectionLabel {
             visible: sendGroup.visible
-            text: panel.session ? I18n.trFor("screencast", "Send to...") : I18n.trFor("screencast", "Send to %1").arg(panel.sendTarget?.name ?? "")
+            text: panel.session ? I18n.trFor("cast", "Send to...") : I18n.trFor("cast", "Send to %1").arg(panel.sendTarget?.name ?? "")
 
             actions: DDropdown {
                 transientSurfaceTracker: panel.transientSurfaceTracker
@@ -1261,10 +1261,10 @@ PluginComponent {
                     title: modelData.name
                     subtitle: {
                         if (panel.service.isQueue)
-                            return I18n.trFor("screencast", "Move the slideshow here");
+                            return I18n.trFor("cast", "Move the slideshow here");
                         if (panel.isMedia)
-                            return I18n.trFor("screencast", "Move playback here");
-                        return I18n.trFor("screencast", "Move the cast here");
+                            return I18n.trFor("cast", "Move playback here");
+                        return I18n.trFor("cast", "Move the cast here");
                     }
                     clickable: true
                     onClicked: panel.service.moveTo(modelData.id)
@@ -1293,7 +1293,7 @@ PluginComponent {
                         width: parent.width - linkButton.width - parent.spacing
                         leftIconName: "link"
                         showClearButton: true
-                        placeholderText: I18n.trFor("screencast", "Paste a link")
+                        placeholderText: I18n.trFor("cast", "Paste a link")
                         text: panel.link
                         onTextEdited: panel.link = text
                         onAccepted: panel.playLink()
@@ -1305,7 +1305,7 @@ PluginComponent {
                         variant: "tonal"
                         iconName: "play_arrow"
                         enabled: panel.hasLink
-                        Accessible.name: I18n.trFor("screencast", "Play the link")
+                        Accessible.name: I18n.trFor("cast", "Play the link")
                         onClicked: panel.playLink()
                     }
                 }
@@ -1313,7 +1313,7 @@ PluginComponent {
 
             CcListRow {
                 iconName: "play_circle"
-                title: I18n.trFor("screencast", "Play a file...")
+                title: I18n.trFor("cast", "Play a file...")
                 clickable: true
                 onClicked: panel.pickFile()
             }
@@ -1321,7 +1321,7 @@ PluginComponent {
             CcListRow {
                 visible: !panel.isMedia
                 iconName: "playlist_play"
-                title: I18n.trFor("screencast", "Open the player")
+                title: I18n.trFor("cast", "Open the player")
                 clickable: true
                 onClicked: panel.openPlayer("")
 
@@ -1357,7 +1357,7 @@ PluginComponent {
 
                     StyledText {
                         width: parent.width
-                        text: I18n.trFor("screencast", "Looking for cast devices...")
+                        text: I18n.trFor("cast", "Looking for cast devices...")
                         font.pixelSize: Theme.fontSizeMedium
                         font.weight: Theme.fontWeightMedium
                         color: Theme.surfaceText
@@ -1370,7 +1370,7 @@ PluginComponent {
 
         CcSectionLabel {
             visible: hintGroup.visible
-            text: I18n.trFor("screencast", "Can't find yours?")
+            text: I18n.trFor("cast", "Can't find yours?")
         }
 
         CcGroup {
@@ -1379,18 +1379,18 @@ PluginComponent {
 
             CcListRow {
                 iconName: "wifi"
-                title: I18n.trFor("screencast", "Guest networks often hide devices")
+                title: I18n.trFor("cast", "Guest networks often hide devices")
             }
         }
 
         // Quick settings
-        ScreencastOptions {
+        CastOptions {
             id: choices
         }
 
         CcSectionLabel {
             visible: optionsGroup.visible
-            text: I18n.trFor("screencast", "Options")
+            text: I18n.trFor("cast", "Options")
         }
 
         CcGroup {
@@ -1400,8 +1400,8 @@ PluginComponent {
             CcListRow {
                 visible: !panel.isMedia
                 iconName: "speaker"
-                title: I18n.trFor("screencast", "Audio output")
-                subtitle: panel.session ? I18n.trFor("screencast", "Applies to the next cast") : ""
+                title: I18n.trFor("cast", "Audio output")
+                subtitle: panel.session ? I18n.trFor("cast", "Applies to the next cast") : ""
 
                 DDropdown {
                     transientSurfaceTracker: panel.transientSurfaceTracker
@@ -1424,16 +1424,16 @@ PluginComponent {
 
                 visible: !panel.isMedia
                 iconName: "high_quality"
-                title: I18n.trFor("screencast", "Quality")
+                title: I18n.trFor("cast", "Quality")
                 subtitle: {
                     if (panel.session)
-                        return I18n.trFor("screencast", "Applies to the next cast");
+                        return I18n.trFor("cast", "Applies to the next cast");
                     if (!custom)
                         return "";
                     const [lines, fps] = panel.service.quality();
-                    return I18n.trFor("screencast", "%1p, %2 fps").arg(lines).arg(fps);
+                    return I18n.trFor("cast", "%1p, %2 fps").arg(lines).arg(fps);
                 }
-                trailingBadge: panel.service?.experimentalQuality ? I18n.trFor("screencast", "Experimental") : ""
+                trailingBadge: panel.service?.experimentalQuality ? I18n.trFor("cast", "Experimental") : ""
                 trailingBadgeColor: Theme.warning
 
                 DDropdown {
@@ -1455,7 +1455,7 @@ PluginComponent {
             CcListRow {
                 visible: panel.showSettingsRow
                 iconName: "settings"
-                title: I18n.trFor("screencast", "Screencast settings")
+                title: I18n.trFor("cast", "Cast settings")
                 clickable: true
                 onClicked: panel.openSettings()
 

@@ -14,7 +14,7 @@ import (
 // the default only through the runtime key default.audio.sink, which
 // WirePlumber never saves and recomputes from the user's configured default
 // once the sink is gone. Nothing needs restoring.
-const sinkName = "dux_screencast"
+const sinkName = "dux_cast"
 
 func audioPipelineFor(target string) string {
 	src := "pipewiresrc stream-properties=props,stream.capture.sink=true"
@@ -23,7 +23,7 @@ func audioPipelineFor(target string) string {
 		// WirePlumber ignores. always-process starts the node before anything
 		// plays; without it pipewiresrc waits and fails after 30 s.
 		src = `pipewiresrc stream-properties="props,media.class=Audio/Sink,node.name=` + sinkName +
-			`,node.description=Screencast,state.restore-props=(string)false,node.always-process=(string)true"`
+			`,node.description=Cast,state.restore-props=(string)false,node.always-process=(string)true"`
 	}
 	return src + " ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! " +
 		"opusenc name=enc bitrate=128000 frame-size=10 ! appsink name=out sync=false"
