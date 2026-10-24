@@ -7,8 +7,8 @@ import Quickshell.Io
 import Quickshell.Services.Mpris
 import qs.Common
 import qs.DCommon.Widgets
+import qs.DCommon.FileBrowser
 import qs.Modals.FileBrowser
-import qs.Modules.ControlCenter
 import qs.Modules.ControlCenter.Widgets
 import qs.Modules.Plugins
 import qs.Modules.Settings.Widgets
@@ -25,10 +25,11 @@ PluginComponent {
 
     readonly property string helperName: "cast-helper"
     readonly property string bundledHelper: Paths.strip(Paths.data) + "/cast/bin/" + helperName
+    readonly property string devHelper: Paths.strip(Paths.data) + "/cast/dev/" + helperName
     property string helperPath: ""
     property bool helperResolved: false
     // The lowest protocol this plugin works with (cast-helper's protocolVersion).
-    readonly property int helperProtocol: 2
+    readonly property int helperProtocol: 3
     // How the helper names this plugin to other apps using it.
     readonly property string clientId: "dms"
     property bool helperOutdated: false
@@ -38,10 +39,11 @@ PluginComponent {
     // Arch gets the helper from the AUR, which also installs the packages it needs.
     property bool onArch: false
     property string aurHelper: "yay"
-    // Downloads the newest helper release and installs it only if it matches
-    // the release's SHA256SUMS.
+    // The helper release the download command installs; it has to speak helperProtocol.
+    readonly property string helperRelease: "v0.1.0"
+    // Downloads that release and installs it only if it matches its SHA256SUMS.
     readonly property string helperDownloadCommand: {
-        const base = "https://github.com/Conava/dux-cast/releases/latest/download";
+        const base = "https://github.com/Conava/dux-cast/releases/download/" + helperRelease;
         const dir = bundledHelper.substring(0, bundledHelper.lastIndexOf("/"));
         const file = helperName + "-$(uname -m)";
         return "(mkdir -p " + dir + " && cd " + dir + " && dms dl " + base + "/" + file + " --timeout 300 -o " + file
@@ -90,8 +92,6 @@ PluginComponent {
         return isNaN(v) ? 8 : v;
     }
 
-    // What was sent with the last play or queue, index-aligned with session.queue.
-    property var queueItems: []
     // The player's folder the running queue came from, "" for anything else.
     property string queueFolder: ""
     property bool queueFromLibrary: false
@@ -102,7 +102,7 @@ PluginComponent {
     readonly property var sessionQueue: isMedia ? (session.queue ?? []) : []
     readonly property int sessionIndex: session?.index ?? 0
     readonly property var currentEntry: sessionQueue[sessionIndex] ?? null
-    readonly property var currentItem: queueItems[sessionIndex] ?? null
+    readonly property var currentItem: entryItem(currentEntry)
     readonly property string currentArtist: currentEntry?.artist ?? ""
     readonly property bool isLink: !!currentItem?.url
     readonly property string currentKind: currentEntry?.kind ?? (isLink ? "video" : "")
@@ -118,6 +118,8 @@ PluginComponent {
     // On a photo in manual mode the main button moves on instead of playing.
     readonly property bool manualPhoto: slideshowManual && currentKind === "image"
     readonly property bool mediaPlaying: currentKind === "image" ? slideshowRunning : isMedia && session.playerState === "PLAYING"
+    // Started but not playing yet: the device app launching, or the item loading.
+    readonly property bool mediaLoading: starting || isMedia && (session.phase === "starting" || session.phase === "authorizing" || currentKind !== "image" && !["PLAYING", "PAUSED"].includes(session.playerState ?? ""))
     readonly property bool hasTimeline: isMedia && currentKind !== "image" && (session.duration ?? 0) > 0
     // When the current queue item came up, for the slideshow countdown.
     property double indexSince: 0
@@ -140,12 +142,25 @@ PluginComponent {
     readonly property var queueIndexOf: {
         const map = {};
         if (showingLibrary)
-            queueItems.forEach((item, i) => {
-                const key = itemKey(item);
-                if (!(key in map))
-                    map[key] = i;
+            sessionQueue.forEach((entry, i) => {
+                if (!(entry.source in map))
+                    map[entry.source] = i;
             });
         return map;
+    }
+    // What the player's show picker offers: the playing show, the open one, then the recent ones.
+    readonly property var showChoices: {
+        const list = [];
+        const add = entry => {
+            if (entry && !list.some(e => e.id === entry.id))
+                list.push(entry);
+        };
+        if (queueFromLibrary && isMedia)
+            add(library.id === playingShowId ? showEntry(library, sessionIndex) : playingShow);
+        if (library.items.length > 0 || library.draft)
+            add(showEntry(library, librarySelect));
+        recentShows.forEach(add);
+        return list;
     }
     // Shows opened or played lately, saved or not, newest first:
     // {id, title, folder, saved, paths, index}.
@@ -182,7 +197,8 @@ PluginComponent {
     property bool _folderAppend: false
     // Playlist files waiting for their entries: show index to insert at, or the one playing.
     property var _playlistAt: ({})
-    property string _expandPlaying: ""
+    // {device, sources}: where to move a swapped-in show once the device plays it.
+    property var _moveAfterEdit: null
 
     readonly property var imageExtensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"]
     readonly property var videoExtensions: ["mp4", "mkv", "webm", "m4v", "mov", "avi"]
@@ -228,6 +244,18 @@ PluginComponent {
     // A queue or show item's identity: its path, or its link.
     function itemKey(item) {
         return item?.path ?? item?.url ?? "";
+    }
+
+    // A session queue entry as {path} or {url}, from the source the helper reports.
+    function entryItem(entry) {
+        const source = entry?.source ?? "";
+        if (!source)
+            return null;
+        return isUrl(source) ? {
+            "url": source
+        } : {
+            "path": source
+        };
     }
 
     function fileUrl(path) {
@@ -353,7 +381,6 @@ PluginComponent {
         begin(deviceId);
         portalMayOpen();
         soundWarning = null;
-        queueItems = [];
         queueFolder = "";
         queueFromLibrary = false;
         send({
@@ -391,11 +418,6 @@ PluginComponent {
             return;
         }
         begin(deviceId);
-        queueItems = [
-            {
-                "path": path
-            }
-        ];
         queueFolder = "";
         queueFromLibrary = false;
         send({
@@ -408,43 +430,32 @@ PluginComponent {
         });
     }
 
-    // Plays a playlist file as a queue; the helper expands it. Asking for its
-    // entries too keeps queueItems aligned with the session for covers and titles.
+    // Plays a playlist file as a queue; the helper expands it.
     function playPlaylist(deviceId, path) {
         begin(deviceId);
-        queueItems = [
-            {
-                "path": path
-            }
-        ];
         queueFolder = "";
         queueFromLibrary = false;
-        _expandPlaying = path;
         send({
             "cmd": "queue",
             "device": deviceId,
-            "items": queueItems,
+            "items": [
+                {
+                    "path": path
+                }
+            ],
             "index": 0,
             "interval": slideshowInterval,
-            "loop": pluginData.slideshowLoop ?? false,
+            "repeat": repeatMode,
+            "times": repeatTimes,
             "shrinkPhotos": pluginData.shrinkPhotos ?? false,
             "convertVideos": pluginData.convertVideos ?? true,
             "port": mediaPort
-        });
-        send({
-            "cmd": "playlist",
-            "path": path
         });
     }
 
     // Plays a YouTube link in the TV's YouTube app, or a direct media link.
     function playLink(deviceId, link) {
         begin(deviceId);
-        queueItems = [
-            {
-                "url": link
-            }
-        ];
         queueFolder = "";
         queueFromLibrary = false;
         send({
@@ -465,23 +476,39 @@ PluginComponent {
                 "path": i.path
             });
         const start = Math.min(library.items.slice(0, Math.max(0, index)).filter(i => !i.missing).length, items.length - 1);
-        begin(deviceId);
-        queueItems = items;
+        // Playback this plugin started is swapped in place: the device keeps its media app open.
+        const replace = isMedia && !ownerName;
+        if (!replace)
+            begin(deviceId);
         queueFolder = library.folder;
         queueFromLibrary = true;
         playingShowId = library.id;
+        rememberShow(library, start);
+        if (replace) {
+            mediaCommand("edit", {
+                "items": items,
+                "index": start
+            });
+            // The helper moves what it plays, so the move waits until the edit arrived.
+            if (session.device !== deviceId)
+                _moveAfterEdit = {
+                    "device": deviceId,
+                    "sources": JSON.stringify(items.map(i => i.path ?? i.url))
+                };
+            return;
+        }
         send({
             "cmd": "queue",
             "device": deviceId,
             "items": items,
             "index": start,
             "interval": slideshowInterval,
-            "loop": pluginData.slideshowLoop ?? false,
+            "repeat": repeatMode,
+            "times": repeatTimes,
             "shrinkPhotos": pluginData.shrinkPhotos ?? false,
             "convertVideos": pluginData.convertVideos ?? true,
             "port": mediaPort
         });
-        rememberShow(library, start);
     }
 
     // Shows a show item now: jumps within the running queue, or starts it from there.
@@ -494,6 +521,22 @@ PluginComponent {
             return;
         }
         playLibrary(playerDevice?.id ?? "", index);
+    }
+
+    // What plays again when it ends: "show", "item" or "" for nothing, and how
+    // often, 0 until stopped. Shows from before keep their on or off loop.
+    readonly property string repeatMode: pluginData.repeat ?? (pluginData.slideshowLoop ? "show" : "")
+    readonly property int repeatTimes: pluginData.repeatTimes ?? 0
+
+    // Applies to playback this plugin started right away.
+    function setRepeat(mode, times) {
+        setSetting("repeat", mode);
+        setSetting("repeatTimes", times);
+        if (isMedia && !ownerName)
+            mediaCommand("repeat", {
+                "repeat": mode,
+                "times": times
+            });
     }
 
     // Seconds per photo, or 0 for manual; applies to a running show right away.
@@ -560,6 +603,19 @@ PluginComponent {
         return true;
     }
 
+    // Mute is volume 0; unmuting goes back to the level from before.
+    property real _unmutedVolume: 0.3
+
+    function toggleMute() {
+        const level = session?.volume ?? 0;
+        if (level > 0) {
+            _unmutedVolume = level;
+            setVolume(0);
+            return;
+        }
+        setVolume(_unmutedVolume);
+    }
+
     function setVolume(level) {
         send({
             "cmd": "volume",
@@ -620,12 +676,14 @@ PluginComponent {
         });
     }
 
+    // draft marks a show the user started, which is kept even while it's empty.
     function blankShow() {
         return {
             "id": String(Date.now()) + Math.random().toString(36).slice(2, 6),
             "title": "",
             "folder": "",
             "saved": "",
+            "draft": false,
             "items": []
         };
     }
@@ -638,7 +696,9 @@ PluginComponent {
     }
 
     function newShow() {
-        switchShow(blankShow(), -1);
+        switchShow(Object.assign(blankShow(), {
+            "draft": true
+        }), -1);
     }
 
     // Fills the show from a folder, or adds the folder's files to it.
@@ -737,6 +797,16 @@ PluginComponent {
         });
     }
 
+    // Takes a show off the recent shows; the open one is closed too.
+    function forgetShow(id) {
+        recentShows = recentShows.filter(r => r.id !== id);
+        pluginService?.savePluginState(pluginId, "recentShows", recentShows);
+        if (library.id !== id)
+            return;
+        library = blankShow();
+        librarySelect = -1;
+    }
+
     function deleteShow(name) {
         const next = Object.assign({}, savedShows);
         delete next[name];
@@ -762,6 +832,7 @@ PluginComponent {
             "title": entry.title,
             "folder": entry.folder,
             "saved": entry.saved,
+            "draft": entry.draft ?? false,
             "items": entry.paths.map(p => makeItem(p))
         }, entry.id === playingShowId ? sessionIndex : entry.index);
         markMissing();
@@ -778,15 +849,6 @@ PluginComponent {
 
     // A playlist's entries came back: play them, or put them into the show.
     function insertPlaylist(path, entries) {
-        if (path === _expandPlaying) {
-            _expandPlaying = "";
-            queueItems = entries.map(e => e.path ? {
-                    "path": e.path
-                } : {
-                    "url": e.url
-                });
-            return;
-        }
         if (!(path in _playlistAt))
             return;
         const at = Math.min(_playlistAt[path], library.items.length);
@@ -818,17 +880,23 @@ PluginComponent {
         });
     }
 
-    function rememberShow(show, index) {
-        if (!show || show.items.length === 0)
-            return;
-        const entry = {
+    // A show as the recent shows keep it.
+    function showEntry(show, index) {
+        return {
             "id": show.id,
             "title": show.title,
             "folder": show.folder,
             "saved": show.saved,
+            "draft": show.draft ?? false,
             "paths": show.items.map(i => i.path),
             "index": Math.max(0, index ?? 0)
         };
+    }
+
+    function rememberShow(show, index) {
+        if (!show || show.items.length === 0 && !show.draft)
+            return;
+        const entry = showEntry(show, index);
         recentShows = [entry].concat(recentShows.filter(r => r.id !== show.id)).slice(0, 8);
         pluginService?.savePluginState(pluginId, "recentShows", recentShows);
     }
@@ -1105,10 +1173,8 @@ PluginComponent {
     function ensureRunning() {
         if (helper.running)
             return;
-        if (!helperResolved) {
-            console.info("cast: helper not started, path not resolved yet");
+        if (!helperResolved)
             return;
-        }
         if (!helperPath || helperOutdated) {
             // The setup view takes over; nothing queued should run once the helper is installed.
             _queue = [];
@@ -1119,16 +1185,30 @@ PluginComponent {
         helper.running = true;
     }
 
-    // The player follows the device to the new item, unless the user is looking at another one.
-    function followIndex(from, to) {
-        const selectedPath = library.items[librarySelect]?.path;
-        const fromPath = itemKey(queueItems[from]);
-        if (librarySelect >= 0 && selectedPath !== fromPath)
+    // Edits to the running show go to the device, which keeps playing the
+    // current item when it's still in the show.
+    function syncShow() {
+        if (!showingLibrary)
             return;
-        const index = library.items.findIndex(i => i.path === itemKey(queueItems[to]));
-        if (index >= 0)
-            librarySelect = index;
+        const sources = library.items.filter(i => !i.missing).map(i => i.path);
+        if (JSON.stringify(sources) === JSON.stringify(sessionQueue.map(e => e.source)))
+            return;
+        if (sources.length === 0) {
+            stopCast();
+            return;
+        }
+        const at = sources.indexOf(currentEntry?.source);
+        mediaCommand("edit", {
+            "items": sources.map(s => isUrl(s) ? {
+                    "url": s
+                } : {
+                    "path": s
+                }),
+            "index": at >= 0 ? at : Math.min(sessionIndex, sources.length - 1)
+        });
     }
+
+    onLibraryChanged: syncShow()
 
     function handle(line) {
         let msg;
@@ -1142,23 +1222,38 @@ PluginComponent {
         case "state":
             {
                 const next = msg.session ?? null;
-                if (!next || next.index !== session?.index || next.device !== session?.device || next.interval !== session?.interval)
+                // An edit can move the current item without the device showing another one.
+                const source = next?.queue?.[next.index ?? 0]?.source ?? "";
+                const moved = source !== (currentEntry?.source ?? "");
+                if (!next || moved || next.device !== session?.device || next.interval !== session?.interval)
                     indexSince = Date.now();
                 if (next && session && next.index !== session.index && queueFromLibrary)
                     rememberPlayingIndex(next.index ?? 0);
-                if (next && queueFromLibrary && next.index !== session?.index)
-                    followIndex(session?.index ?? -1, next.index ?? 0);
+                // The player's selection follows what the device shows.
+                if (next && moved && queueFromLibrary && library.id === playingShowId) {
+                    const at = library.items.findIndex(i => i.path === source);
+                    if (at >= 0)
+                        librarySelect = at;
+                }
                 if (!next && session && queueFromLibrary && !starting)
                     endShow();
-                // What this plugin sent doesn't describe another app's queue.
-                if (next?.owner && next.owner.id !== clientId && queueItems.length > 0) {
-                    queueItems = [];
+                // Edits made while the show was starting.
+                if (next && !session && queueFromLibrary)
+                    Qt.callLater(syncShow);
+                // Another app's queue isn't one of the player's shows.
+                if (next?.owner && next.owner.id !== clientId) {
                     queueFolder = "";
                     queueFromLibrary = false;
                 }
                 devices = msg.devices ?? [];
                 rememberDevices(devices);
                 session = next;
+                if (_moveAfterEdit && (!next || JSON.stringify((next.queue ?? []).map(e => e.source)) === _moveAfterEdit.sources)) {
+                    const target = _moveAfterEdit.device;
+                    _moveAfterEdit = null;
+                    if (next)
+                        moveTo(target);
+                }
                 if (!next)
                     soundWarning = null;
                 if (session)
@@ -1251,21 +1346,35 @@ PluginComponent {
         });
     }
 
-    // A helper path set in Settings wins (another install location, or a
-    // development build); then PATH, then the plugin's own folder.
+    // A helper path set in Settings wins (another install location); then a
+    // build from this repo's ./dev script, then PATH, then ~/.local/share/dms/cast/bin.
+    // Only the newest lookup counts: the setting can arrive while an earlier one still runs.
+    property int _lookup: 0
+
     function findHelper() {
         helperOutdated = false;
+        const lookup = ++_lookup;
+        const use = path => {
+            if (lookup === root._lookup)
+                root.useHelper(path);
+        };
         if (customHelper) {
-            Proc.runCommand("cast.findCustom", ["test", "-x", customHelper], (out, code) => root.useHelper(code === 0 ? root.customHelper : ""));
+            Proc.runCommand("cast.findCustom", ["test", "-x", customHelper], (out, code) => use(code === 0 ? root.customHelper : ""));
             return;
         }
-        Proc.runCommand("cast.findHelper", ["sh", "-c", "command -v cast-helper || true"], stdout => {
-            const onPath = stdout.trim();
-            if (onPath) {
-                root.useHelper(onPath);
+        Proc.runCommand("cast.findDev", ["test", "-x", devHelper], (out, code) => {
+            if (code === 0) {
+                use(root.devHelper);
                 return;
             }
-            Proc.runCommand("cast.findBundled", ["test", "-x", root.bundledHelper], (out, code) => root.useHelper(code === 0 ? root.bundledHelper : ""));
+            Proc.runCommand("cast.findHelper", ["sh", "-c", "command -v cast-helper || true"], stdout => {
+                const onPath = stdout.trim();
+                if (onPath) {
+                    use(onPath);
+                    return;
+                }
+                Proc.runCommand("cast.findBundled", ["test", "-x", root.bundledHelper], (out, code) => use(code === 0 ? root.bundledHelper : ""));
+            });
         });
     }
 
@@ -1311,19 +1420,23 @@ PluginComponent {
         onStarted: {
             console.info("cast: helper started:", root.helperPath);
             root._thumbPending = {};
-            root.send({
-                "cmd": "hello",
-                "client": root.clientId,
-                "name": "Dux Shell"
-            });
-            root.send({
-                "cmd": "check"
-            });
+            // hello goes first, so a cast queued while the helper started has this plugin as its owner.
+            const first = [
+                {
+                    "cmd": "hello",
+                    "client": root.clientId,
+                    "name": "Dux Shell"
+                },
+                {
+                    "cmd": "check"
+                }
+            ];
             if (root.discoveryWanted)
-                root.send({
+                first.push({
                     "cmd": "discover",
                     "on": true
                 });
+            root._queue = first.map(m => JSON.stringify(m) + "\n").concat(root._queue);
             root.flush();
         }
 
@@ -1477,6 +1590,7 @@ PluginComponent {
         property string kind: ""
         property bool missing: false
         property int sourceSize: 256
+        property int fillMode: Image.PreserveAspectCrop
 
         readonly property string source: missing ? "" : kind === "image" ? service.fileUrl(path) : (service.thumbs[path] ?? "")
 
@@ -1500,16 +1614,191 @@ PluginComponent {
             sourceSize.width: thumb.sourceSize
             sourceSize.height: thumb.sourceSize
             asynchronous: true
-            fillMode: Image.PreserveAspectCrop
+            fillMode: thumb.fillMode
             visible: status === Image.Ready
         }
 
         DIcon {
             anchors.centerIn: parent
-            visible: image.status !== Image.Ready
+            visible: image.status !== Image.Ready && (thumb.path !== "" || thumb.missing)
             name: thumb.missing ? "broken_image" : thumb.kind === "video" ? "movie" : thumb.kind === "audio" ? "music_note" : "image"
             size: Math.min(Theme.iconSize, thumb.height * 0.6)
             color: thumb.missing ? Theme.error : Theme.surfaceVariantText
+        }
+    }
+
+    // Clicks and drag to reorder over a list or grid of a show's items. The view
+    // scrolls while the pointer is near its edge, so an item can go anywhere.
+    component ReorderArea: MouseArea {
+        id: area
+
+        required property Flickable view
+        required property var slotAt // content x, y → the gap the item drops into, 0 to count
+        property bool horizontal: false
+        property int from: -1
+        property int to: -1
+        property point pointer
+        property point pressedAt
+        property bool wasDrag: false
+        readonly property bool dragging: from >= 0
+        readonly property real edge: Theme.iconSize * 2
+
+        signal chosen(int index)
+        signal moved(int from, int to)
+        signal menuRequested(int index, real x, real y)
+
+        function retarget() {
+            to = slotAt(pointer.x + view.contentX, pointer.y + view.contentY);
+        }
+
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        cursorShape: dragging ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+        preventStealing: true
+        onPressed: mouse => {
+            pressedAt = Qt.point(mouse.x, mouse.y);
+            wasDrag = false;
+        }
+        onPositionChanged: mouse => {
+            if (!(mouse.buttons & Qt.LeftButton))
+                return;
+            pointer = Qt.point(mouse.x, mouse.y);
+            if (!dragging) {
+                if (Math.hypot(mouse.x - pressedAt.x, mouse.y - pressedAt.y) < Qt.styleHints.startDragDistance)
+                    return;
+                from = view.indexAt(pressedAt.x + view.contentX, pressedAt.y + view.contentY);
+                if (from < 0)
+                    return;
+            }
+            retarget();
+        }
+        onReleased: {
+            wasDrag = dragging;
+            if (dragging && to >= 0 && to !== from && to !== from + 1)
+                moved(from, to > from ? to - 1 : to);
+            from = -1;
+            to = -1;
+        }
+        onCanceled: {
+            from = -1;
+            to = -1;
+        }
+        onClicked: mouse => {
+            if (wasDrag)
+                return;
+            const index = view.indexAt(mouse.x + view.contentX, mouse.y + view.contentY);
+            if (index < 0)
+                return;
+            if (mouse.button === Qt.RightButton)
+                menuRequested(index, mouse.x, mouse.y);
+            else
+                chosen(index);
+        }
+
+        FrameAnimation {
+            readonly property real along: area.horizontal ? area.pointer.x : area.pointer.y
+            readonly property real length: area.horizontal ? area.width : area.height
+            readonly property int direction: along < area.edge ? -1 : along > length - area.edge ? 1 : 0
+
+            running: area.dragging && direction !== 0
+            onTriggered: {
+                const v = area.view;
+                const step = direction * area.edge * 6 * frameTime;
+                if (area.horizontal)
+                    v.contentX = Math.max(v.originX, Math.min(v.originX + Math.max(0, v.contentWidth - v.width), v.contentX + step));
+                else
+                    v.contentY = Math.max(v.originY, Math.min(v.originY + Math.max(0, v.contentHeight - v.height), v.contentY + step));
+                area.retarget();
+            }
+        }
+    }
+
+    // Inside a dropdown: its whole value on a long hover, when the value doesn't fit.
+    component FullValueTip: Item {
+        id: tip
+
+        readonly property Item dropdown: parent
+        readonly property bool cut: metrics.width > dropdown.width - Theme.iconSize - Theme.spacingM * 2
+
+        anchors.fill: parent
+
+        StyledTextMetrics {
+            id: metrics
+            text: tip.dropdown.currentValue
+            font.pixelSize: Theme.fontSizeMedium
+        }
+
+        HoverHandler {
+            onHoveredChanged: hovered ? host.schedule() : host.dismiss()
+        }
+
+        DTooltipHost {
+            id: host
+            target: tip.dropdown
+            text: tip.cut ? tip.dropdown.currentValue : ""
+        }
+    }
+
+    // FileMenu here and in the show picker: an in-window menu with dividers,
+    // which DDropdown doesn't have.
+    // Right-click actions on a show item: show it now, right after the current
+    // one, at the end, or take it out. Moves reach a running show right away.
+    component ItemMenu: FileMenu {
+        id: itemMenu
+
+        property var player: null
+        property int index: -1
+        readonly property var service: player?.service ?? null
+        readonly property int count: player?.items.length ?? 0
+        readonly property var item: player?.items[index] ?? null
+        readonly property bool photo: item?.kind === "image"
+        // "Next" means after what the device shows, or after the selection when nothing plays.
+        readonly property int after: player?.selected ?? -1
+
+        function openFor(i, x, y) {
+            index = i;
+            openAt(x, y);
+        }
+
+        FileMenuItem {
+            iconName: "play_arrow"
+            text: itemMenu.photo ? I18n.trFor("cast", "Show now") : I18n.trFor("cast", "Play now")
+            enabled: !!itemMenu.player?.device && !(itemMenu.item?.missing ?? true) && itemMenu.index !== itemMenu.player.deviceIndex
+            onClicked: {
+                itemMenu.close();
+                itemMenu.service.showNow(itemMenu.index);
+            }
+        }
+
+        FileMenuItem {
+            iconName: "queue_play_next"
+            text: itemMenu.photo ? I18n.trFor("cast", "Show next") : I18n.trFor("cast", "Play next")
+            enabled: itemMenu.index !== itemMenu.after && itemMenu.index !== itemMenu.after + 1
+            onClicked: {
+                itemMenu.close();
+                itemMenu.service.moveItem(itemMenu.index, itemMenu.index > itemMenu.after ? itemMenu.after + 1 : itemMenu.after);
+            }
+        }
+
+        FileMenuItem {
+            iconName: "low_priority"
+            text: itemMenu.photo ? I18n.trFor("cast", "Show last") : I18n.trFor("cast", "Play last")
+            enabled: itemMenu.index < itemMenu.count - 1
+            onClicked: {
+                itemMenu.close();
+                itemMenu.service.moveItem(itemMenu.index, itemMenu.count - 1);
+            }
+        }
+
+        FileMenuDivider {}
+
+        FileMenuItem {
+            iconName: "delete"
+            danger: true
+            text: I18n.trFor("cast", "Remove from the show")
+            onClicked: {
+                itemMenu.close();
+                itemMenu.service.removeItem(itemMenu.index);
+            }
         }
     }
 
@@ -1604,9 +1893,11 @@ PluginComponent {
         readonly property bool empty: items.length === 0
         // The start page: saved shows and recent folders.
         property bool home: false
-        readonly property bool showHome: empty || home
+        // A show the user started stays open while it's still empty.
+        readonly property bool showHome: empty && !service.library.draft || home
         readonly property int missingCount: items.filter(i => i.missing).length
-        readonly property int selected: Math.min(Math.max(0, service.librarySelect), items.length - 1)
+        // While the show plays, the selection is what the device shows.
+        readonly property int selected: deviceIndex >= 0 ? deviceIndex : Math.min(Math.max(0, service.librarySelect), items.length - 1)
         readonly property var selectedItem: items[selected] ?? null
         readonly property var selectedEntry: entryFor(selectedItem)
         // A failed start, or the selected item failing for a missing package.
@@ -1622,11 +1913,10 @@ PluginComponent {
             return null;
         }
         // What the device shows: the running show's item, or the single file played from the panel.
-        readonly property int onDevice: {
+        readonly property int deviceIndex: {
             const path = service.showingLibrary ? service.itemKey(service.currentItem) : "";
             return path ? items.findIndex(i => i.path === path) : -1;
         }
-        readonly property var onDeviceItem: items[onDevice] ?? null
         readonly property var device: service.playerDevice
         readonly property string deviceName: device?.name ?? I18n.trFor("cast", "cast device")
         property bool gridMode: false
@@ -1659,11 +1949,20 @@ PluginComponent {
             pickerLoader.item?.open();
         }
 
-        // From the start page, adding files or a folder begins a new show.
+        // From the start page: an empty new show, or one from a folder or playlist.
         function startShow(mode) {
             service.newShow();
             home = false;
-            pick(mode);
+            if (mode)
+                pick(mode);
+        }
+
+        // Clicking an item of the running show shows it on the device; otherwise it picks where Play starts.
+        function choose(index) {
+            if (service.showingLibrary)
+                service.showNow(index);
+            else
+                service.librarySelect = index;
         }
 
         title: I18n.trFor("cast", "Player")
@@ -1731,7 +2030,7 @@ PluginComponent {
                 id: header
                 width: parent.width
                 controls: windowControls
-                title: win.showHome ? I18n.trFor("cast", "Player") : win.service.showName(win.service.library.title, win.items.map(i => i.name))
+                title: I18n.trFor("cast", "Player")
                 subtitle: {
                     if (win.showHome)
                         return I18n.trFor("cast", "Shows");
@@ -1742,59 +2041,120 @@ PluginComponent {
                 }
                 titleAlignment: Text.AlignLeft
                 onCloseRequested: win.service.closePlayer()
+            }
 
-                DActionButton {
-                    visible: !win.empty
-                    iconName: win.home ? "arrow_back" : "video_library"
-                    tooltipText: win.home ? I18n.trFor("cast", "Back to the show") : I18n.trFor("cast", "Shows")
-                    Accessible.name: tooltipText
-                    onClicked: win.home = !win.home
+            // Back to all shows, the show switcher, and what goes into the show.
+            Item {
+                id: toolbar
+                visible: !win.showHome
+                width: parent.width
+                height: Theme.buttonHeightM + Theme.spacingS
+
+                Row {
+                    x: Theme.windowInset
+                    height: Theme.buttonHeightM
+                    spacing: Theme.spacingS
+
+                    DActionButton {
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconName: "arrow_back"
+                        tooltipText: I18n.trFor("cast", "All shows")
+                        Accessible.name: tooltipText
+                        onClicked: win.home = true
+                    }
+
+                    DButton {
+                        id: showButton
+                        anchors.verticalCenter: parent.verticalCenter
+                        buttonHeight: Theme.buttonHeightXS
+                        iconName: "video_library"
+                        text: win.service.showName(win.service.library.title, win.items.map(i => i.name))
+                        backgroundColor: Theme.secondaryContainer
+                        textColor: Theme.onSecondaryContainer
+                        onClicked: showMenu.open()
+
+                        // The playing show, the open one and the recent ones, then a new one.
+                        FileMenu {
+                            id: showMenu
+                            y: showButton.height + Theme.spacingXS
+                            width: Math.max(showButton.width, Math.round(Theme.fontSizeMedium * 20))
+
+                            Repeater {
+                                model: win.service.showChoices
+
+                                FileMenuItem {
+                                    required property var modelData
+
+                                    iconName: modelData.id === win.service.playingShowId && win.service.queueFromLibrary && win.service.isMedia ? "cast" : "video_library"
+                                    text: win.service.showName(modelData.title, modelData.paths.map(p => win.service.baseName(p)))
+                                    checked: modelData.id === win.service.library.id
+                                    onClicked: {
+                                        showMenu.close();
+                                        win.service.openRecent(modelData);
+                                    }
+                                }
+                            }
+
+                            FileMenuDivider {}
+
+                            FileMenuItem {
+                                iconName: "add"
+                                text: I18n.trFor("cast", "Start New Show")
+                                onClicked: {
+                                    showMenu.close();
+                                    win.service.newShow();
+                                }
+                            }
+                        }
+                    }
                 }
 
-                DButton {
-                    visible: !win.showHome
-                    buttonHeight: Theme.buttonHeightXS
-                    iconName: "add"
-                    text: I18n.trFor("cast", "Add files")
-                    backgroundColor: Theme.secondaryContainer
-                    textColor: Theme.onSecondaryContainer
-                    onClicked: win.pick("files")
-                }
+                Row {
+                    anchors.right: parent.right
+                    anchors.rightMargin: Theme.windowInset
+                    height: Theme.buttonHeightM
+                    spacing: Theme.spacingS
 
-                DButton {
-                    visible: !win.showHome
-                    buttonHeight: Theme.buttonHeightXS
-                    iconName: "create_new_folder"
-                    text: I18n.trFor("cast", "Add a folder")
-                    backgroundColor: Theme.secondaryContainer
-                    textColor: Theme.onSecondaryContainer
-                    onClicked: win.pick("folder")
-                }
+                    DButton {
+                        anchors.verticalCenter: parent.verticalCenter
+                        buttonHeight: Theme.buttonHeightXS
+                        iconName: "add"
+                        text: I18n.trFor("cast", "Add files")
+                        backgroundColor: Theme.secondaryContainer
+                        textColor: Theme.onSecondaryContainer
+                        onClicked: win.pick("files")
+                    }
 
-                DActionButton {
-                    visible: !win.showHome
-                    iconName: win.gridMode ? "view_carousel" : "grid_view"
-                    tooltipText: win.gridMode ? I18n.trFor("cast", "Filmstrip") : I18n.trFor("cast", "Grid")
-                    Accessible.name: tooltipText
-                    onClicked: win.gridMode = !win.gridMode
-                }
+                    DButton {
+                        anchors.verticalCenter: parent.verticalCenter
+                        buttonHeight: Theme.buttonHeightXS
+                        iconName: "create_new_folder"
+                        text: I18n.trFor("cast", "Add a folder")
+                        backgroundColor: Theme.secondaryContainer
+                        textColor: Theme.onSecondaryContainer
+                        onClicked: win.pick("folder")
+                    }
 
-                DDropdown {
-                    anchors.verticalCenter: parent.verticalCenter
-                    compactMode: true
-                    dropdownWidth: CcMetrics.rowDropdownWidth
-                    alignPopupRight: true
-                    emptyText: I18n.trFor("cast", "No cast devices")
-                    readonly property var labels: win.service.deviceLabels(win.service.mediaDevices)
-                    options: labels
-                    currentValue: labels[win.service.mediaDevices.findIndex(d => d.id === win.device?.id)] ?? ""
-                    onValueChanged: value => {
-                        const target = win.service.mediaDevices[labels.indexOf(value)];
-                        if (!target)
-                            return;
-                        win.service.playerDeviceId = target.id;
-                        if (win.service.showingLibrary && target.id !== win.service.session.device)
-                            win.service.moveTo(target.id);
+                    DButtonGroup {
+                        anchors.verticalCenter: parent.verticalCenter
+                        size: "small"
+                        iconOnly: true
+                        checkEnabled: false
+                        model: [
+                            {
+                                "icon": "view_carousel",
+                                "tooltip": I18n.trFor("cast", "Filmstrip")
+                            },
+                            {
+                                "icon": "grid_view",
+                                "tooltip": I18n.trFor("cast", "Grid")
+                            }
+                        ]
+                        currentIndex: win.gridMode ? 1 : 0
+                        onSelectionChanged: (index, selected) => {
+                            if (selected)
+                                win.gridMode = index === 1;
+                        }
                     }
                 }
             }
@@ -1827,7 +2187,7 @@ PluginComponent {
                         DFab {
                             iconName: "add"
                             text: I18n.trFor("cast", "New show")
-                            onClicked: win.startShow("files")
+                            onClicked: win.startShow("")
                         }
 
                         DButton {
@@ -1931,17 +2291,18 @@ PluginComponent {
                     }
 
                     CcSectionLabel {
-                        visible: win.service.recentShows.length > 0
+                        visible: win.service.showChoices.length > 0
                         text: I18n.trFor("cast", "Recent shows")
                     }
 
                     CcGroup {
-                        visible: win.service.recentShows.length > 0
+                        visible: win.service.showChoices.length > 0
 
                         Repeater {
-                            model: win.service.recentShows
+                            model: win.service.showChoices
 
                             CcListRow {
+                                id: recentRow
                                 required property var modelData
                                 readonly property bool playing: modelData.id === win.service.playingShowId && win.service.queueFromLibrary && win.service.isMedia
 
@@ -1955,11 +2316,19 @@ PluginComponent {
                                         return I18n.trFor("cast", "%1 items · stopped at %2").arg(modelData.paths.length).arg(modelData.index + 1);
                                     return I18n.trFor("cast", "%1 items").arg(modelData.paths.length);
                                 }
-                                showChevron: true
                                 clickable: true
                                 onClicked: {
                                     win.service.openRecent(modelData);
                                     win.home = false;
+                                }
+
+                                DActionButton {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: !recentRow.playing
+                                    iconName: "delete"
+                                    tooltipText: I18n.trFor("cast", "Remove from recent shows")
+                                    Accessible.name: tooltipText
+                                    onClicked: win.service.forgetShow(recentRow.modelData.id)
                                 }
                             }
                         }
@@ -1968,73 +2337,105 @@ PluginComponent {
             }
 
             // Grid of the whole show; drag a tile to reorder.
-            DGridView {
-                id: grid
+            Item {
                 visible: !win.showHome && win.gridMode
-                width: parent.width - Theme.windowInset * 2
-                x: Theme.windowInset
-                height: parent.height - header.height - Theme.windowInset
-                clip: true
-                interactive: !gridDragging
-                property bool gridDragging: false
-                readonly property int columns: Math.max(3, Math.floor(width / (Theme.fontSizeMedium * 11)))
-                cellWidth: width / columns
-                cellHeight: cellWidth * 0.75 + Theme.fontSizeSmall + Theme.spacingS
-                model: win.gridMode ? win.items : []
+                width: parent.width
+                height: parent.height - header.height - toolbar.height - Theme.windowInset
 
-                delegate: Item {
-                    id: cell
-                    required property var modelData
-                    required property int index
+                DGridView {
+                    id: grid
+                    x: Theme.windowInset
+                    width: parent.width - Theme.windowInset * 2
+                    height: parent.height
+                    clip: true
+                    readonly property int columns: Math.max(3, Math.floor(width / (Theme.fontSizeMedium * 11)))
+                    readonly property real thumbHeight: (cellWidth - Theme.spacingXS * 2) * 0.66
+                    cellWidth: width / columns
+                    cellHeight: cellWidth * 0.75 + Theme.fontSizeSmall + Theme.spacingS
+                    model: win.gridMode ? win.items : []
 
-                    width: grid.cellWidth
-                    height: grid.cellHeight
-                    z: cellMouse.drag.active ? 1 : 0
+                    delegate: Item {
+                        id: cell
+                        required property var modelData
+                        required property int index
+
+                        width: grid.cellWidth
+                        height: grid.cellHeight
+                        opacity: gridReorder.from === index ? 0.4 : 1
+
+                        Thumb {
+                            id: cellThumb
+                            service: win.service
+                            path: cell.modelData.path
+                            kind: cell.modelData.kind
+                            missing: cell.modelData.missing
+                            x: Theme.spacingXS
+                            width: parent.width - Theme.spacingXS * 2
+                            height: grid.thumbHeight
+                            radius: Theme.cornerRadiusM
+                            border.width: cell.index === win.selected || cell.index === win.deviceIndex ? Theme.focusRingWidth : 0
+                            border.color: cell.index === win.deviceIndex ? Theme.primary : Theme.surfaceText
+                        }
+
+                        StyledText {
+                            anchors.top: cellThumb.bottom
+                            anchors.topMargin: Theme.spacingXS
+                            x: Theme.spacingXS
+                            width: cellThumb.width
+                            text: cell.modelData.name
+                            elide: Text.ElideRight
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: cell.modelData.missing ? Theme.error : Theme.surfaceVariantText
+                        }
+                    }
+                }
+
+                ReorderArea {
+                    id: gridReorder
+
+                    anchors.fill: grid
+                    view: grid
+                    slotAt: (x, y) => {
+                        const column = Math.max(0, Math.min(grid.columns, Math.round(x / grid.cellWidth)));
+                        const row = Math.max(0, Math.floor(y / grid.cellHeight));
+                        return Math.min(grid.count, row * grid.columns + column);
+                    }
+                    onChosen: index => {
+                        win.choose(index);
+                        win.gridMode = false;
+                    }
+                    onMoved: (from, to) => win.service.moveItem(from, to)
+                    onMenuRequested: (index, x, y) => gridMenu.openFor(index, x, y)
+
+                    ItemMenu {
+                        id: gridMenu
+                        player: win
+                    }
+
+                    StyledRect {
+                        visible: gridReorder.dragging && gridReorder.to >= 0
+                        x: Math.max(0, gridReorder.to % grid.columns * grid.cellWidth - width / 2)
+                        y: Math.floor(gridReorder.to / grid.columns) * grid.cellHeight - grid.contentY
+                        width: Theme.focusRingWidth * 2
+                        height: grid.thumbHeight
+                        radius: width / 2
+                        color: Theme.primary
+                    }
 
                     Thumb {
-                        id: cellThumb
+                        readonly property var item: win.items[gridReorder.from] ?? null
+
+                        visible: gridReorder.dragging
                         service: win.service
-                        path: cell.modelData.path
-                        kind: cell.modelData.kind
-                        missing: cell.modelData.missing
-                        x: Theme.spacingXS
-                        width: parent.width - Theme.spacingXS * 2
-                        height: width * 0.66
+                        path: item?.path ?? ""
+                        kind: item?.kind ?? ""
+                        missing: item?.missing ?? false
+                        x: gridReorder.pointer.x - width / 2
+                        y: gridReorder.pointer.y - height / 2
+                        width: grid.cellWidth - Theme.spacingXS * 2
+                        height: grid.thumbHeight
                         radius: Theme.cornerRadiusM
-                        border.width: cell.index === win.selected || cell.index === win.onDevice ? Theme.focusRingWidth : 0
-                        border.color: cell.index === win.onDevice ? Theme.primary : Theme.surfaceText
-                    }
-
-                    StyledText {
-                        anchors.top: cellThumb.bottom
-                        anchors.topMargin: Theme.spacingXS
-                        x: Theme.spacingXS
-                        width: cellThumb.width
-                        text: cell.modelData.name
-                        elide: Text.ElideRight
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: cell.modelData.missing ? Theme.error : Theme.surfaceVariantText
-                    }
-
-                    MouseArea {
-                        id: cellMouse
-                        anchors.fill: parent
-                        cursorShape: drag.active ? Qt.ClosedHandCursor : Qt.PointingHandCursor
-                        drag.target: cell
-                        preventStealing: true
-                        onPressed: grid.gridDragging = true
-                        onClicked: {
-                            win.service.librarySelect = cell.index;
-                            win.gridMode = false;
-                        }
-                        onReleased: {
-                            grid.gridDragging = false;
-                            const column = Math.max(0, Math.min(grid.columns - 1, Math.round(cell.x / grid.cellWidth)));
-                            const to = Math.round(cell.y / grid.cellHeight) * grid.columns + column;
-                            if (to !== cell.index)
-                                win.service.moveItem(cell.index, to);
-                            grid.forceLayout();
-                        }
+                        opacity: 0.8
                     }
                 }
             }
@@ -2043,7 +2444,7 @@ PluginComponent {
             Item {
                 visible: !win.showHome && !win.gridMode
                 width: parent.width
-                height: parent.height - header.height
+                height: parent.height - header.height - toolbar.height
 
                 Row {
                     id: top
@@ -2052,121 +2453,115 @@ PluginComponent {
                     height: parent.height - transport.height - strip.height - Theme.spacingM * 3
                     spacing: Theme.spacingL
 
-                    // The big preview follows the selection; an inset keeps showing what the room sees.
-                    Thumb {
+                    // The big preview is what the device shows while the show plays, and where Play starts otherwise.
+                    Item {
                         id: stage
-                        service: win.service
+
+                        readonly property bool isOnDevice: win.selected === win.deviceIndex
+
                         width: parent.width - side.width - parent.spacing
                         height: parent.height
-                        radius: Theme.cornerRadiusXL
-                        path: win.selectedItem?.path ?? ""
-                        kind: win.selectedItem?.kind ?? ""
-                        missing: win.selectedItem?.missing ?? false
-                        sourceSize: 1600
 
-                        readonly property bool isOnDevice: win.selected === win.onDevice
+                        // The whole photo, letterboxed as the device shows it.
+                        Thumb {
+                            service: win.service
+                            width: parent.width
+                            height: parent.height - (metaRow.visible ? metaRow.height + Theme.spacingM : 0)
+                            radius: Theme.cornerRadiusXL
+                            path: win.selectedItem?.path ?? ""
+                            kind: win.selectedItem?.kind ?? ""
+                            missing: win.selectedItem?.missing ?? false
+                            sourceSize: 1600
+                            fillMode: Image.PreserveAspectFit
 
-                        StyledRect {
-                            visible: stage.isOnDevice
-                            x: Theme.spacingM
-                            y: Theme.spacingM
-                            width: tagRow.implicitWidth + Theme.spacingM * 2
-                            height: Theme.buttonHeightXS
-                            radius: height / 2
-                            color: Theme.primaryContainer
+                            StyledRect {
+                                visible: stage.isOnDevice
+                                x: Theme.spacingM
+                                y: Theme.spacingM
+                                width: tagRow.implicitWidth + Theme.spacingM * 2
+                                height: Theme.buttonHeightXS
+                                radius: height / 2
+                                color: Theme.primaryContainer
 
-                            Row {
-                                id: tagRow
+                                Row {
+                                    id: tagRow
+                                    anchors.centerIn: parent
+                                    spacing: Theme.spacingXS
+
+                                    DIcon {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        name: "cast"
+                                        size: Theme.iconSizeSmall
+                                        color: Theme.onPrimaryContainer
+                                    }
+
+                                    StyledText {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: I18n.trFor("cast", "On %1").arg(win.deviceName)
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        font.weight: Theme.fontWeightMedium
+                                        color: Theme.onPrimaryContainer
+                                    }
+                                }
+                            }
+
+                            CcEmptyState {
+                                visible: win.empty
                                 anchors.centerIn: parent
-                                spacing: Theme.spacingXS
-
-                                DIcon {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    name: "cast"
-                                    size: Theme.iconSizeSmall
-                                    color: Theme.onPrimaryContainer
-                                }
-
-                                StyledText {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: I18n.trFor("cast", "On %1").arg(win.deviceName)
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.weight: Theme.fontWeightMedium
-                                    color: Theme.onPrimaryContainer
-                                }
+                                width: parent.width - Theme.spacingXL * 2
+                                iconName: "add_photo_alternate"
+                                title: I18n.trFor("cast", "Add files or a folder to this show")
                             }
                         }
 
-                        Thumb {
-                            visible: !stage.isOnDevice && !!win.onDeviceItem
-                            service: win.service
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.margins: Theme.spacingM
-                            width: parent.width / 4
-                            height: width * 0.62
-                            radius: Theme.cornerRadiusL
-                            border.width: Theme.focusRingWidth
-                            border.color: Theme.primary
-                            path: win.onDeviceItem?.path ?? ""
-                            kind: win.onDeviceItem?.kind ?? ""
-                        }
-
-                        StyledRect {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
+                        Row {
+                            id: metaRow
+                            visible: !win.empty
                             anchors.bottom: parent.bottom
-                            height: metaRow.implicitHeight + Theme.spacingM * 2
-                            color: CcMetrics.rowColor
+                            width: parent.width
+                            spacing: Theme.spacingM
 
-                            Row {
-                                id: metaRow
-                                anchors.fill: parent
-                                anchors.margins: Theme.spacingM
-                                spacing: Theme.spacingM
+                            Column {
+                                width: parent.width - removeButton.width - parent.spacing
+                                anchors.verticalCenter: parent.verticalCenter
 
-                                Column {
-                                    width: parent.width - (showNow.visible ? showNow.width + parent.spacing : 0)
-                                    anchors.verticalCenter: parent.verticalCenter
-
-                                    StyledText {
-                                        width: parent.width
-                                        text: win.selectedEntry?.title || (win.selectedItem?.name ?? "")
-                                        elide: Text.ElideMiddle
-                                        font.pixelSize: Theme.fontSizeMedium
-                                        font.weight: Theme.fontWeightMedium
-                                        color: Theme.surfaceText
-                                    }
-
-                                    StyledText {
-                                        width: parent.width
-                                        text: {
-                                            const pos = I18n.trFor("cast", "%1 of %2").arg(win.selected + 1).arg(win.items.length);
-                                            const entry = win.selectedEntry;
-                                            if (win.selectedItem?.missing)
-                                                return pos + " · " + I18n.trFor("cast", "Not found");
-                                            if (entry?.status === "failed")
-                                                return pos + " · " + win.service.itemErrorText(entry);
-                                            if (entry?.status === "preparing")
-                                                return pos + " · " + I18n.trFor("cast", "Preparing... %1%").arg(Math.round((entry.progress ?? 0) * 100));
-                                            if (win.selectedEntry?.artist)
-                                                return pos + " · " + win.selectedEntry.artist;
-                                            return pos;
-                                        }
-                                        elide: Text.ElideRight
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        color: win.selectedItem?.missing ? Theme.error : Theme.surfaceVariantText
-                                    }
+                                StyledText {
+                                    width: parent.width
+                                    text: win.selectedEntry?.title || (win.selectedItem?.name ?? "")
+                                    elide: Text.ElideMiddle
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.weight: Theme.fontWeightMedium
+                                    color: Theme.surfaceText
                                 }
 
-                                DButton {
-                                    id: showNow
-                                    visible: !stage.isOnDevice && !!win.device && !(win.selectedItem?.missing ?? true)
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    iconName: "cast"
-                                    text: win.service.showingLibrary ? I18n.trFor("cast", "Show now") : I18n.trFor("cast", "Start here")
-                                    onClicked: win.service.showNow(win.selected)
+                                StyledText {
+                                    width: parent.width
+                                    text: {
+                                        const pos = I18n.trFor("cast", "%1 of %2").arg(win.selected + 1).arg(win.items.length);
+                                        const entry = win.selectedEntry;
+                                        if (win.selectedItem?.missing)
+                                            return pos + " · " + I18n.trFor("cast", "Not found");
+                                        if (entry?.status === "failed")
+                                            return pos + " · " + win.service.itemErrorText(entry);
+                                        if (entry?.status === "preparing")
+                                            return pos + " · " + I18n.trFor("cast", "Preparing... %1%").arg(Math.round((entry.progress ?? 0) * 100));
+                                        if (win.selectedEntry?.artist)
+                                            return pos + " · " + win.selectedEntry.artist;
+                                        return pos;
+                                    }
+                                    elide: Text.ElideRight
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: win.selectedItem?.missing ? Theme.error : Theme.surfaceVariantText
                                 }
+                            }
+
+                            DActionButton {
+                                id: removeButton
+                                anchors.verticalCenter: parent.verticalCenter
+                                iconName: "delete"
+                                tooltipText: I18n.trFor("cast", "Remove from the show")
+                                Accessible.name: tooltipText
+                                onClicked: win.service.removeItem(win.selected)
                             }
                         }
                     }
@@ -2261,90 +2656,205 @@ PluginComponent {
                                         }
                                     }
                                 }
-
-                                SettingsRow {
-                                    iconName: win.selectedItem?.missing ? "broken_image" : win.selectedItem?.kind === "video" ? "movie" : win.selectedItem?.kind === "audio" ? "music_note" : "image"
-                                    title: win.selectedItem?.name ?? ""
-                                    singleLineTitle: true
-
-                                    DActionButton {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        iconName: "arrow_back"
-                                        enabled: win.selected > 0
-                                        tooltipText: I18n.trFor("cast", "Move earlier")
-                                        Accessible.name: tooltipText
-                                        onClicked: win.service.moveItem(win.selected, win.selected - 1)
-                                    }
-
-                                    DActionButton {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        iconName: "arrow_forward"
-                                        enabled: win.selected < win.items.length - 1
-                                        tooltipText: I18n.trFor("cast", "Move later")
-                                        Accessible.name: tooltipText
-                                        onClicked: win.service.moveItem(win.selected, win.selected + 1)
-                                    }
-
-                                    DActionButton {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        iconName: "delete"
-                                        tooltipText: I18n.trFor("cast", "Remove from the show")
-                                        Accessible.name: tooltipText
-                                        onClicked: win.service.removeItem(win.selected)
-                                    }
-                                }
                             }
 
                             SettingsSectionLabel {
-                                text: I18n.trFor("cast", "Photos change")
+                                text: I18n.trFor("cast", "Playback")
                             }
 
                             SettingsGroup {
-                                SettingsButtonGroupRow {
-                                    model: [I18n.trFor("cast", "Manual")].concat([5, 8, 15].map(n => I18n.trFor("cast", "%1 s").arg(n)))
-                                    values: [0, 5, 8, 15]
-                                    value: win.service.slideshowInterval
-                                    fallbackValue: 8
-                                    onValueSelected: value => win.service.setSlideshowInterval(value)
-                                }
-
-                                SettingsToggleRow {
-                                    iconName: "repeat"
-                                    text: I18n.trFor("cast", "Repeat")
-                                    checked: win.service.pluginData.slideshowLoop ?? false
-                                    onToggled: checked => win.service.setSetting("slideshowLoop", checked)
-                                }
-                            }
-
-                            SettingsSectionLabel {
-                                visible: deviceGroup.visible
-                                text: win.deviceName
-                            }
-
-                            SettingsGroup {
-                                id: deviceGroup
-                                visible: win.service.showingLibrary
-
                                 SettingsRow {
-                                    visible: win.service.session?.canVolume ?? false
-                                    iconName: "volume_up"
+                                    id: timerRow
 
-                                    body: DSlider {
+                                    readonly property var seconds: [0, 5, 8, 15, 30]
+                                    readonly property var labels: seconds.map(n => n === 0 ? I18n.trFor("cast", "Timer off") : I18n.trFor("cast", "Every %1 seconds").arg(n))
+                                    readonly property string customLabel: I18n.trFor("cast", "Custom...")
+                                    // Custom stays open once picked, and for a time that isn't one of the choices.
+                                    property bool customPicked: false
+                                    readonly property bool custom: customPicked || !seconds.includes(win.service.slideshowInterval)
+
+                                    body: Row {
                                         width: parent.width
-                                        minimum: 0
-                                        maximum: 100
-                                        // A drag assigns value, which would drop a plain binding and stop
-                                        // showing changes made on the device.
-                                        Binding on value {
-                                            value: Math.round((win.service.session?.volume ?? 0) * 100)
-                                            restoreMode: Binding.RestoreNone
+                                        spacing: Theme.spacingL
+
+                                        DIcon {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            name: "timer"
+                                            size: Theme.iconSize
+                                            color: Theme.primary
                                         }
-                                        unit: "%"
-                                        onSliderDragFinished: finalValue => win.service.setVolume(finalValue / 100)
+
+                                        DDropdown {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            compactMode: true
+                                            dropdownWidth: parent.width - Theme.iconSize - parent.spacing
+                                            options: timerRow.labels.concat([timerRow.customLabel])
+                                            currentValue: timerRow.custom ? timerRow.customLabel : timerRow.labels[timerRow.seconds.indexOf(win.service.slideshowInterval)]
+                                            onValueChanged: value => {
+                                                timerRow.customPicked = value === timerRow.customLabel;
+                                                if (!timerRow.customPicked)
+                                                    win.service.setSlideshowInterval(timerRow.seconds[timerRow.labels.indexOf(value)] ?? 8);
+                                            }
+
+                                            FullValueTip {}
+                                        }
                                     }
                                 }
 
                                 SettingsRow {
+                                    id: customRow
+                                    visible: timerRow.custom
+
+                                    function apply() {
+                                        const n = parseInt(customField.text);
+                                        if (n > 0)
+                                            win.service.setSlideshowInterval(n);
+                                    }
+
+                                    body: Row {
+                                        width: parent.width
+                                        spacing: Theme.spacingS
+
+                                        DTextField {
+                                            id: customField
+                                            width: parent.width - customUnit.width - parent.spacing
+                                            placeholderText: I18n.trFor("cast", "Seconds per photo")
+                                            text: timerRow.seconds.includes(win.service.slideshowInterval) ? "" : String(win.service.slideshowInterval)
+                                            validator: IntValidator {
+                                                bottom: 1
+                                                top: 3600
+                                            }
+                                            onAccepted: customRow.apply()
+                                            onEditingFinished: customRow.apply()
+                                        }
+
+                                        StyledText {
+                                            id: customUnit
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: I18n.trFor("cast", "seconds")
+                                            font.pixelSize: Theme.fontSizeMedium
+                                            color: Theme.surfaceVariantText
+                                        }
+                                    }
+                                }
+
+                                SettingsRow {
+                                    id: repeatRow
+
+                                    // Off, the show or the current item, once more or until stopped.
+                                    readonly property var choices: [["", 0], ["show", 1], ["show", 0], ["item", 1], ["item", 0]]
+                                    readonly property var labels: [I18n.trFor("cast", "Repeat off"), I18n.trFor("cast", "Show once more"), I18n.trFor("cast", "Loop the show"), I18n.trFor("cast", "Item once more"), I18n.trFor("cast", "Loop this item")]
+
+                                    body: Row {
+                                        width: parent.width
+                                        spacing: Theme.spacingL
+
+                                        DIcon {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            name: win.service.repeatMode === "item" ? "repeat_one" : "repeat"
+                                            size: Theme.iconSize
+                                            color: Theme.primary
+                                        }
+
+                                        DDropdown {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            compactMode: true
+                                            dropdownWidth: parent.width - Theme.iconSize - parent.spacing
+                                            options: repeatRow.labels
+                                            currentValue: repeatRow.labels[repeatRow.choices.findIndex(c => c[0] === win.service.repeatMode && (c[0] === "" || c[1] === win.service.repeatTimes))] ?? repeatRow.labels[0]
+                                            onValueChanged: value => {
+                                                const choice = repeatRow.choices[repeatRow.labels.indexOf(value)] ?? ["", 0];
+                                                win.service.setRepeat(choice[0], choice[1]);
+                                            }
+
+                                            FullValueTip {}
+                                        }
+                                    }
+                                }
+                            }
+
+                            SettingsSectionLabel {
+                                text: I18n.trFor("cast", "Cast to")
+                            }
+
+                            SettingsGroup {
+                                SettingsRow {
+                                    id: deviceRow
+
+                                    readonly property var labels: win.service.deviceLabels(win.service.mediaDevices)
+
+                                    body: Row {
+                                        width: parent.width
+                                        spacing: Theme.spacingL
+
+                                        DIcon {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            name: win.service.deviceIcon(win.device)
+                                            size: Theme.iconSize
+                                            color: Theme.primary
+                                        }
+
+                                        DDropdown {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            compactMode: true
+                                            dropdownWidth: parent.width - Theme.iconSize - parent.spacing
+                                            emptyText: I18n.trFor("cast", "No cast devices")
+                                            options: deviceRow.labels
+                                            currentValue: deviceRow.labels[win.service.mediaDevices.findIndex(d => d.id === win.device?.id)] ?? ""
+                                            onValueChanged: value => {
+                                                const target = win.service.mediaDevices[deviceRow.labels.indexOf(value)];
+                                                if (!target)
+                                                    return;
+                                                win.service.playerDeviceId = target.id;
+                                                if (win.service.showingLibrary && target.id !== win.service.session.device)
+                                                    win.service.moveTo(target.id);
+                                            }
+
+                                            FullValueTip {}
+                                        }
+                                    }
+                                }
+
+                                SettingsRow {
+                                    id: volumeRow
+
+                                    readonly property bool muted: (win.service.session?.volume ?? 0) === 0
+
+                                    visible: win.service.showingLibrary && (win.service.session?.canVolume ?? false)
+
+                                    body: Row {
+                                        width: parent.width
+                                        spacing: Theme.spacingS
+
+                                        DActionButton {
+                                            id: muteButton
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            iconName: volumeRow.muted ? "volume_off" : "volume_up"
+                                            iconColor: Theme.primary
+                                            tooltipText: volumeRow.muted ? I18n.trFor("cast", "Unmute") : I18n.trFor("cast", "Mute")
+                                            Accessible.name: tooltipText
+                                            onClicked: win.service.toggleMute()
+                                        }
+
+                                        DSlider {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: parent.width - muteButton.width - parent.spacing
+                                            minimum: 0
+                                            maximum: 100
+                                            // A drag assigns value, which would drop a plain binding and stop
+                                            // showing changes made on the device.
+                                            Binding on value {
+                                                value: Math.round((win.service.session?.volume ?? 0) * 100)
+                                                restoreMode: Binding.RestoreNone
+                                            }
+                                            unit: "%"
+                                            onSliderDragFinished: finalValue => win.service.setVolume(finalValue / 100)
+                                        }
+                                    }
+                                }
+
+                                SettingsRow {
+                                    visible: win.service.showingLibrary
                                     readonly property int cached: win.service.sessionQueue.length > 0 ? win.cachedAhead() : 0
                                     readonly property bool waiting: win.service.preparing
 
@@ -2358,6 +2868,8 @@ PluginComponent {
                                 }
 
                                 SettingsRow {
+                                    visible: win.service.showingLibrary
+
                                     DButton {
                                         buttonHeight: Theme.buttonHeightXS
                                         iconName: "stop"
@@ -2373,6 +2885,7 @@ PluginComponent {
                 }
 
                 // Transport: previous, the main action, next, and the countdown or seek bar.
+                // A show that isn't playing gets one action instead: start it, or swap it in.
                 Row {
                     id: transport
                     x: Theme.windowInset
@@ -2383,47 +2896,78 @@ PluginComponent {
 
                     readonly property bool active: win.service.showingLibrary
                     readonly property bool manualPhoto: active && win.service.manualPhoto
+                    // Until the device plays what was started, there's nothing to pause yet.
+                    readonly property bool loading: active && win.service.mediaLoading
+
+                    DButton {
+                        id: startButton
+                        visible: !transport.active
+                        anchors.verticalCenter: parent.verticalCenter
+                        buttonHeight: Theme.buttonHeightM
+                        iconName: win.service.otherShowPlaying ? "swap_horiz" : "play_arrow"
+                        text: {
+                            if (win.service.starting)
+                                return I18n.trFor("cast", "Starting...");
+                            return win.service.otherShowPlaying ? I18n.trFor("cast", "Switch to this show") : I18n.trFor("cast", "Start show");
+                        }
+                        enabled: !!win.device && !win.empty && !win.service.starting
+                        onClicked: win.service.playLibrary(win.device.id, win.selected)
+                    }
+
+                    StyledText {
+                        visible: !transport.active && !win.empty
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - startButton.width - parent.spacing
+                        text: I18n.trFor("cast", "From %1 on %2").arg(win.selectedItem?.name ?? "").arg(win.deviceName)
+                        elide: Text.ElideMiddle
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceVariantText
+                    }
 
                     DIconButton {
+                        visible: transport.active
                         anchors.verticalCenter: parent.verticalCenter
                         iconName: "skip_previous"
-                        enabled: transport.active && win.service.sessionIndex > 0
+                        enabled: win.service.sessionIndex > 0
                         Accessible.name: I18n.trFor("cast", "Previous")
                         onClicked: win.service.mediaCommand("previous")
                     }
 
                     // Play or pause; in manual mode on a photo it moves on to the next one.
                     DIconButton {
+                        visible: transport.active
                         anchors.verticalCenter: parent.verticalCenter
                         size: "m"
                         widthMode: "wide"
                         variant: "filled"
                         round: false
-                        checkable: !transport.manualPhoto
-                        checked: transport.active && !transport.manualPhoto && win.service.mediaPlaying
+                        // Shows what the device does; clicking only sends the command.
+                        checked: !transport.manualPhoto && win.service.mediaPlaying
                         iconFilled: false
                         radius: Theme.buttonRadius(width, height, buttonSize, pressed, checked)
-                        iconName: transport.manualPhoto ? "skip_next" : checked ? "pause" : "play_arrow"
-                        enabled: !!win.device && (!transport.manualPhoto || win.service.sessionIndex < win.service.sessionQueue.length - 1)
+                        iconName: transport.loading ? "" : transport.manualPhoto ? "skip_next" : checked ? "pause" : "play_arrow"
+                        enabled: !transport.loading && (!transport.manualPhoto || win.service.sessionIndex < win.service.sessionQueue.length - 1)
                         Accessible.name: transport.manualPhoto ? I18n.trFor("cast", "Next") : checked ? I18n.trFor("cast", "Pause") : I18n.trFor("cast", "Play")
-                        onClicked: {
-                            if (transport.active)
-                                win.service.togglePlay();
-                            else
-                                win.service.playLibrary(win.device.id, win.selected);
+                        onClicked: win.service.togglePlay()
+
+                        DLoadingIndicator {
+                            anchors.centerIn: parent
+                            visible: transport.loading
+                            size: Theme.iconSize
                         }
                     }
 
                     DIconButton {
-                        visible: !transport.manualPhoto
+                        visible: transport.active && !transport.manualPhoto
                         anchors.verticalCenter: parent.verticalCenter
                         iconName: "skip_next"
-                        enabled: transport.active && win.service.sessionIndex < win.service.sessionQueue.length - 1
+                        enabled: win.service.sessionIndex < win.service.sessionQueue.length - 1
                         Accessible.name: I18n.trFor("cast", "Next")
                         onClicked: win.service.mediaCommand("next")
                     }
 
                     Item {
+                        visible: transport.active
                         width: Theme.spacingS
                         height: 1
                     }
@@ -2433,12 +2977,12 @@ PluginComponent {
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - x
                         spacing: Theme.spacingXS
-                        visible: !win.service.hasTimeline || !transport.active
+                        visible: transport.active && !win.service.hasTimeline
 
                         readonly property real countdown: win.service.countdownAt(win.now)
 
                         StyledRect {
-                            visible: transport.active && (win.service.preparing || countdownColumn.countdown >= 0)
+                            visible: win.service.preparing || countdownColumn.countdown >= 0
                             width: parent.width
                             height: Theme.spacingXS
                             radius: height / 2
@@ -2465,16 +3009,12 @@ PluginComponent {
 
                             StyledText {
                                 text: {
-                                    if (win.service.otherShowPlaying)
-                                        return I18n.trFor("cast", "Play replaces the running show");
-                                    if (!transport.active)
-                                        return I18n.trFor("cast", "Press play to start on %1").arg(win.deviceName);
                                     if (win.service.preparing)
                                         return I18n.trFor("cast", "Preparing %1... %2%").arg(win.service.currentTitle).arg(Math.round(win.service.prepProgress * 100));
                                     if (countdownColumn.countdown >= 0)
                                         return I18n.trFor("cast", "Next photo in %1 s").arg(Math.ceil(countdownColumn.countdown));
                                     if (win.service.slideshowManual)
-                                        return I18n.trFor("cast", "Manual");
+                                        return I18n.trFor("cast", "Timer off");
                                     return I18n.trFor("cast", "Paused");
                                 }
                                 font.pixelSize: Theme.fontSizeSmall
@@ -2483,7 +3023,6 @@ PluginComponent {
 
                             StyledText {
                                 anchors.right: parent.right
-                                visible: transport.active
                                 text: (win.service.sessionIndex + 1) + " / " + win.service.sessionQueue.length
                                 font.pixelSize: Theme.fontSizeSmall
                                 color: Theme.surfaceVariantText
@@ -2552,9 +3091,17 @@ PluginComponent {
                 }
 
                 // Filmstrip: cast badge on what the device shows, a bolt on what's cached,
-                // a ring while preparing. Drag a tile to reorder.
+                // a ring while preparing. It keeps what the device shows in view.
                 DListView {
                     id: strip
+
+                    readonly property real pitch: Math.round(height * 1.4) + spacing
+
+                    function follow() {
+                        if (!stripReorder.dragging && currentIndex >= 0)
+                            positionViewAtIndex(currentIndex, ListView.Contain);
+                    }
+
                     x: Theme.windowInset
                     y: transport.y + transport.height + Theme.spacingM
                     width: parent.width - Theme.windowInset * 2
@@ -2562,11 +3109,11 @@ PluginComponent {
                     orientation: ListView.Horizontal
                     spacing: Theme.spacingS
                     clip: true
-                    interactive: !stripDragging
-                    property bool stripDragging: false
                     model: win.gridMode ? [] : win.items
                     currentIndex: win.selected
-                    onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+                    onCurrentIndexChanged: follow()
+                    onCountChanged: Qt.callLater(follow)
+                    onVisibleChanged: Qt.callLater(follow)
 
                     delegate: Thumb {
                         id: tile
@@ -2579,33 +3126,15 @@ PluginComponent {
                         path: modelData.path
                         kind: modelData.kind
                         missing: modelData.missing
-                        width: Math.round(height * 1.4)
+                        width: strip.pitch - strip.spacing
                         height: strip.height
-                        z: tileMouse.drag.active ? 1 : 0
+                        opacity: stripReorder.from === index ? 0.4 : 1
                         radius: Theme.cornerRadiusM
-                        border.width: index === win.onDevice || index === win.selected ? Theme.focusRingWidth : 0
-                        border.color: index === win.onDevice ? Theme.primary : Theme.surfaceText
-
-                        MouseArea {
-                            id: tileMouse
-                            anchors.fill: parent
-                            cursorShape: drag.active ? Qt.ClosedHandCursor : Qt.PointingHandCursor
-                            drag.target: tile
-                            drag.axis: Drag.XAxis
-                            preventStealing: true
-                            onPressed: strip.stripDragging = true
-                            onClicked: win.service.librarySelect = tile.index
-                            onReleased: {
-                                strip.stripDragging = false;
-                                const to = Math.round(tile.x / (tile.width + strip.spacing));
-                                if (to !== tile.index)
-                                    win.service.moveItem(tile.index, to);
-                                strip.forceLayout();
-                            }
-                        }
+                        border.width: index === win.deviceIndex || index === win.selected ? Theme.focusRingWidth : 0
+                        border.color: index === win.deviceIndex ? Theme.primary : Theme.surfaceText
 
                         StyledRect {
-                            visible: tile.index === win.onDevice || tile.entry?.status === "ready"
+                            visible: tile.index === win.deviceIndex || tile.entry?.status === "ready"
                             x: Theme.spacingXS
                             y: Theme.spacingXS
                             width: Theme.iconSizeSmall + Theme.spacingXS
@@ -2615,10 +3144,10 @@ PluginComponent {
 
                             DIcon {
                                 anchors.centerIn: parent
-                                name: tile.index === win.onDevice ? "cast" : "bolt"
+                                name: tile.index === win.deviceIndex ? "cast" : "bolt"
                                 filled: true
                                 size: Theme.iconSizeSmall - Theme.spacingXXS
-                                color: tile.index === win.onDevice ? Theme.primary : Theme.success
+                                color: tile.index === win.deviceIndex ? Theme.primary : Theme.success
                             }
                         }
 
@@ -2656,6 +3185,47 @@ PluginComponent {
                             value: tile.entry?.progress ?? 0
                             animated: false
                         }
+                    }
+                }
+
+                ReorderArea {
+                    id: stripReorder
+
+                    anchors.fill: strip
+                    view: strip
+                    horizontal: true
+                    slotAt: (x, y) => Math.max(0, Math.min(strip.count, Math.round(x / strip.pitch)))
+                    onChosen: index => win.choose(index)
+                    onMoved: (from, to) => win.service.moveItem(from, to)
+                    onMenuRequested: (index, x, y) => stripMenu.openFor(index, x, y)
+
+                    ItemMenu {
+                        id: stripMenu
+                        player: win
+                    }
+
+                    StyledRect {
+                        visible: stripReorder.dragging && stripReorder.to >= 0
+                        x: stripReorder.to * strip.pitch - strip.spacing / 2 - width / 2 - strip.contentX
+                        width: Theme.focusRingWidth * 2
+                        height: parent.height
+                        radius: width / 2
+                        color: Theme.primary
+                    }
+
+                    Thumb {
+                        readonly property var item: win.items[stripReorder.from] ?? null
+
+                        visible: stripReorder.dragging
+                        service: win.service
+                        path: item?.path ?? ""
+                        kind: item?.kind ?? ""
+                        missing: item?.missing ?? false
+                        x: stripReorder.pointer.x - width / 2
+                        width: strip.pitch - strip.spacing
+                        height: strip.height
+                        radius: Theme.cornerRadiusM
+                        opacity: 0.8
                     }
                 }
             }

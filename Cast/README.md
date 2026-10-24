@@ -36,9 +36,11 @@ Everywhere else, follow the [dux-cast installation guide](https://github.com/Con
 a few GStreamer and Avahi packages, then a release build or a build from source. AirPlay also needs
 doubletake, which is explained there too.
 
-The plugin looks for `cast-helper` on `PATH`, then in `~/.local/share/dms/cast/bin/`. A helper
-installed somewhere else can be set in Settings > Helper path. Until it's found, the popout shows
-the install command for your system. It does the same when a plugin update needs a newer helper.
+The plugin looks for `cast-helper` on `PATH`, then in `~/.local/share/dms/cast/bin/`. A
+development build from this repo's `./dev` script, in `~/.local/share/dms/cast/dev/`, comes
+first. A helper installed somewhere else can be set in Settings > Helper path. Until it's found,
+the popout shows the install command for your system. It does the same when a plugin update needs
+a newer helper.
 
 ### 2. Install the plugin
 

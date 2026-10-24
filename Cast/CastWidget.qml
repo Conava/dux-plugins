@@ -27,7 +27,7 @@ PluginComponent {
     readonly property string pillState: {
         if (!casting && !busy)
             return "idle";
-        if (busy || session.phase === "starting" || session.phase === "authorizing")
+        if (busy || !session || session.phase === "starting" || session.phase === "authorizing")
             return "connecting";
         if (session.kind !== "media")
             return "mirror";
@@ -90,19 +90,10 @@ PluginComponent {
     }
 
     component LiveDot: StyledRect {
-        id: dot
-
-        property bool pulsing: false
-
         width: Theme.spacingS
         height: width
         radius: width / 2
         color: Theme.error
-
-        DBlink {
-            target: dot
-            running: dot.pulsing
-        }
     }
 
     component StopButton: DActionButton {
@@ -307,7 +298,6 @@ PluginComponent {
 
                     LiveDot {
                         anchors.centerIn: parent
-                        pulsing: pill.mode === "mirror" && root.surfaceLive
                     }
                 }
 
@@ -425,7 +415,6 @@ PluginComponent {
 
             LiveDot {
                 visible: vpill.mode === "mirror"
-                pulsing: visible && root.surfaceLive
                 anchors.horizontalCenter: parent.horizontalCenter
             }
 
@@ -846,7 +835,6 @@ PluginComponent {
                     LiveDot {
                         anchors.centerIn: parent
                         visible: !panel.connecting
-                        pulsing: visible && panel.shown
                     }
                 }
 
@@ -1051,7 +1039,7 @@ PluginComponent {
                                     return panel.service.clock(panel.service.positionAt(panel.now));
                                 if (bar.countdown >= 0)
                                     return I18n.trFor("cast", "Next in %1 s").arg(Math.ceil(bar.countdown));
-                                return panel.service.slideshowManual ? I18n.trFor("cast", "Manual") : I18n.trFor("cast", "Paused");
+                                return panel.service.slideshowManual ? I18n.trFor("cast", "Timer off") : I18n.trFor("cast", "Paused");
                             }
                             font.pixelSize: Theme.fontSizeSmall
                             color: Theme.surfaceVariantText
@@ -1095,7 +1083,7 @@ PluginComponent {
                             round: false
                             readonly property bool manualPhoto: panel.service?.manualPhoto ?? false
 
-                            checkable: !manualPhoto
+                            // Shows what the device does; clicking only sends the command.
                             checked: !manualPhoto && (panel.service?.mediaPlaying ?? false)
                             iconFilled: false
                             radius: Theme.buttonRadius(width, height, buttonSize, pressed, checked)

@@ -145,7 +145,7 @@ PluginSettings {
 
         readonly property var intervals: [
             {
-                "label": I18n.trFor("cast", "Manual"),
+                "label": I18n.trFor("cast", "Off"),
                 "value": "0"
             }
         ].concat([5, 8, 15, 30].map(n => ({
@@ -197,7 +197,7 @@ PluginSettings {
             isMonospace: true
             wrapMode: Text.Wrap
             font.pixelSize: Theme.fontSizeSmall
-            color: Theme.surfaceVariantText
+            color: Theme.surfaceText
         }
 
         DActionButton {
@@ -441,11 +441,38 @@ PluginSettings {
 
         SettingsGroup {
             SettingsDropdownRow {
+                id: intervalRow
+
+                readonly property string interval: String(root.value("slideshowInterval", "8"))
+                readonly property string customLabel: I18n.trFor("cast", "Custom...")
+                // Custom stays open once picked, and for a time that isn't one of the choices.
+                property bool customPicked: false
+                readonly property bool custom: customPicked || !choices.intervals.some(o => o.value === interval)
+
                 iconName: "slideshow"
                 text: I18n.trFor("cast", "Slideshow interval")
-                options: choices.intervals.map(o => o.label)
-                currentValue: choices.labelOf(choices.intervals, String(root.value("slideshowInterval", "8")))
-                onValueChanged: value => root.save("slideshowInterval", choices.valueOf(choices.intervals, value))
+                options: choices.intervals.map(o => o.label).concat([customLabel])
+                currentValue: custom ? customLabel : choices.labelOf(choices.intervals, interval)
+                onValueChanged: value => {
+                    customPicked = value === customLabel;
+                    if (!customPicked)
+                        root.save("slideshowInterval", choices.valueOf(choices.intervals, value));
+                }
+            }
+
+            SettingsTextFieldRow {
+                visible: intervalRow.custom
+                iconName: "timer"
+                text: I18n.trFor("cast", "Seconds per photo")
+                value: intervalRow.custom && !intervalRow.customPicked ? intervalRow.interval : ""
+                validator: IntValidator {
+                    bottom: 1
+                    top: 3600
+                }
+                onEditingFinished: value => {
+                    if (parseInt(value) > 0)
+                        root.save("slideshowInterval", String(parseInt(value)));
+                }
             }
 
             SettingsToggleRow {
@@ -574,7 +601,7 @@ PluginSettings {
             SettingsTextFieldRow {
                 iconName: "folder_open"
                 text: I18n.trFor("cast", "Helper path")
-                description: I18n.trFor("cast", "Only needed for a helper outside PATH and the plugin's folder")
+                description: I18n.trFor("cast", "Only needed for a helper outside PATH and ~/.local/share/dms/cast/bin")
                 placeholderText: "cast-helper"
                 value: root.value("helperPath", "")
                 onEditingFinished: value => {
