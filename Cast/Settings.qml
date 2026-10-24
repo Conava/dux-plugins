@@ -38,6 +38,22 @@ PluginSettings {
     }
     readonly property string port: value("mediaPort", "47830")
     readonly property string airplayPorts: value("airplayPorts", "47840-47849")
+    // The local network of the default route, for the firewall commands.
+    property string lanSubnet: "192.168.0.0/16"
+
+    Component.onCompleted: {
+        Proc.runCommand("cast.lanSubnet", ["ip", "-4", "-j", "route", "show"], (out, code) => {
+            if (code !== 0)
+                return;
+            try {
+                const routes = JSON.parse(out);
+                const dev = routes.find(r => r.dst === "default")?.dev;
+                const lan = routes.find(r => r.dev === dev && r.scope === "link" && r.dst.includes("/"));
+                if (lan)
+                    root.lanSubnet = lan.dst;
+            } catch (e) {}
+        });
+    }
     readonly property var deps: service?.deps ?? []
     readonly property var missingIds: deps.filter(d => !d.present).map(d => d.id)
 
@@ -157,6 +173,8 @@ PluginSettings {
         property string command: ""
         // A short label in front, such as which hardware the command is for.
         property string label: ""
+        // A web page instead of a command: it opens rather than being copied.
+        readonly property bool isLink: /^https?:\/\//.test(command)
 
         visible: command !== ""
         height: visible ? implicitHeight : 0
@@ -185,11 +203,16 @@ PluginSettings {
         DActionButton {
             id: copyButton
             anchors.verticalCenter: parent.verticalCenter
-            iconName: "content_copy"
+            iconName: commandRow.isLink ? "open_in_new" : "content_copy"
             iconSize: Theme.iconSizeSmall
-            tooltipText: I18n.trFor("cast", "Copy")
+            tooltipText: commandRow.isLink ? I18n.trFor("cast", "Open") : I18n.trFor("cast", "Copy")
             Accessible.name: tooltipText
-            onClicked: Quickshell.execDetached(["dms", "cl", "copy", commandRow.command])
+            onClicked: {
+                if (commandRow.isLink)
+                    Qt.openUrlExternally(commandRow.command);
+                else
+                    Quickshell.execDetached(["dms", "cl", "copy", commandRow.command]);
+            }
         }
     }
 
@@ -282,18 +305,20 @@ PluginSettings {
                         };
                     for (const d of root.devices)
                         byId[d.id] = d;
-                    return Object.values(byId).sort((a, b) => a.name.localeCompare(b.name));
+                    return Object.values(byId).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
                 }
+                readonly property var labels: root.service?.deviceLabels(deviceChoices) ?? []
+                readonly property string favoriteLabel: labels[deviceChoices.findIndex(d => d.id === root.value("favoriteDevice", ""))] ?? favoriteName
 
                 options: {
-                    const names = deviceChoices.map(d => d.name);
-                    if (favoriteName && !names.includes(favoriteName))
-                        names.unshift(favoriteName);
+                    const names = labels.slice();
+                    if (favoriteLabel && !names.includes(favoriteLabel))
+                        names.unshift(favoriteLabel);
                     return [noneLabel].concat(names);
                 }
-                currentValue: favoriteName || noneLabel
+                currentValue: favoriteLabel || noneLabel
                 onValueChanged: value => {
-                    const device = deviceChoices.find(d => d.name === value);
+                    const device = deviceChoices[labels.indexOf(value)];
                     if (value === noneLabel || device) {
                         root.saveValue("favoriteDevice", device?.id ?? "");
                         root.save("favoriteName", device?.name ?? "");
@@ -454,7 +479,7 @@ PluginSettings {
             SettingsRow {
                 body: CommandRow {
                     width: parent.width
-                    command: "sudo ufw allow from 192.168.0.0/16 to any port " + root.port + " proto tcp"
+                    command: "sudo ufw allow from " + root.lanSubnet + " to any port " + root.port + " proto tcp"
                 }
             }
         }
@@ -480,7 +505,7 @@ PluginSettings {
             SettingsRow {
                 body: CommandRow {
                     width: parent.width
-                    command: "sudo ufw allow from 192.168.0.0/16 to any port " + root.airplayPorts.replace("-", ":") + " proto udp"
+                    command: "sudo ufw allow from " + root.lanSubnet + " to any port " + root.airplayPorts.replace("-", ":") + " proto udp"
                 }
             }
         }
@@ -520,18 +545,22 @@ PluginSettings {
                 subtitle: {
                     if (!root.service?.helperResolved)
                         return "";
+                    if (root.service.helperPath && root.service.helperOutdated)
+                        return I18n.trFor("cast", "Outdated, update it with one of these commands");
+                    if (root.service.helperPath && root.service.helperVersion)
+                        return root.service.helperPath + " · " + root.service.helperVersion;
                     return root.service.helperPath || I18n.trFor("cast", "Not installed");
                 }
 
                 body: Column {
                     width: parent.width
                     spacing: Theme.spacingS
-                    visible: !!root.service?.helperResolved && !root.service.helperPath
+                    visible: !!root.service?.helperResolved && (!root.service.helperPath || root.service.helperOutdated)
                     height: visible ? implicitHeight : 0
 
                     CommandRow {
                         width: parent.width
-                        command: root.service?.onArch ? "yay -S cast-helper" : ""
+                        command: root.service?.onArch ? root.service.aurHelper + " -S cast-helper" : ""
                     }
 
                     CommandRow {
@@ -539,6 +568,18 @@ PluginSettings {
                         label: root.service?.onArch ? I18n.trFor("cast", "Or download") : ""
                         command: root.service?.helperDownloadCommand ?? ""
                     }
+                }
+            }
+
+            SettingsTextFieldRow {
+                iconName: "folder_open"
+                text: I18n.trFor("cast", "Helper path")
+                description: I18n.trFor("cast", "Only needed for a helper outside PATH and the plugin's folder")
+                placeholderText: "cast-helper"
+                value: root.value("helperPath", "")
+                onEditingFinished: value => {
+                    if (value.trim() !== root.value("helperPath", ""))
+                        root.save("helperPath", value.trim());
                 }
             }
 

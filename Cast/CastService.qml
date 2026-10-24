@@ -4,6 +4,7 @@ import QtQuick
 import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.Mpris
 import qs.Common
 import qs.DCommon.Widgets
 import qs.Modals.FileBrowser
@@ -26,16 +27,26 @@ PluginComponent {
     readonly property string bundledHelper: Paths.strip(Paths.data) + "/cast/bin/" + helperName
     property string helperPath: ""
     property bool helperResolved: false
-    readonly property string installGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#3-install-cast-helper"
+    // The lowest protocol this plugin works with (cast-helper's protocolVersion).
+    readonly property int helperProtocol: 2
+    // How the helper names this plugin to other apps using it.
+    readonly property string clientId: "dms"
+    property bool helperOutdated: false
+    property string helperVersion: ""
+    readonly property string customHelper: (pluginData.helperPath ?? "").trim().replace(/^~\//, Quickshell.env("HOME") + "/")
+    readonly property string installGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#1-install-cast-helper"
     // Arch gets the helper from the AUR, which also installs the packages it needs.
     property bool onArch: false
-    // Downloads the helper built for this plugin version from the repository's releases.
+    property string aurHelper: "yay"
+    // Downloads the newest helper release and installs it only if it matches
+    // the release's SHA256SUMS.
     readonly property string helperDownloadCommand: {
-        const version = pluginService?.availablePlugins?.[pluginId]?.version ?? "";
-        if (!version)
-            return "";
-        const url = "https://github.com/Conava/dux-plugins/releases/download/cast-v" + version + "/" + helperName + "-$(uname -m)";
-        return "dms dl " + url + " --timeout 300 -o " + bundledHelper + " && chmod +x " + bundledHelper;
+        const base = "https://github.com/Conava/dux-cast/releases/latest/download";
+        const dir = bundledHelper.substring(0, bundledHelper.lastIndexOf("/"));
+        const file = helperName + "-$(uname -m)";
+        return "(mkdir -p " + dir + " && cd " + dir + " && dms dl " + base + "/" + file + " --timeout 300 -o " + file
+            + " && dms dl " + base + "/SHA256SUMS | grep \" " + file + "$\" | sha256sum -c && mv " + file + " " + helperName
+            + " && chmod +x " + helperName + ")";
     }
 
     property var devices: []
@@ -56,7 +67,10 @@ PluginComponent {
     // The TV loads local files from this port, so a firewall rule can allow it.
     readonly property int mediaPort: parseInt(pluginData.mediaPort ?? "47830") || 47830
     readonly property bool casting: session !== null
-    readonly property bool wanted: discoveryWanted || casting || starting
+    // The helper is on MPRIS while it casts, also for another app connected to
+    // it; the plugin attaches then to show and control that cast.
+    readonly property bool helperCasting: Mpris.players.values.some(p => p.dbusName === "org.mpris.MediaPlayer2.cast")
+    readonly property bool wanted: discoveryWanted || casting || starting || helperCasting
 
     readonly property string favorite: pluginData.favoriteDevice ?? ""
     readonly property var favoriteDevice: devices.find(d => d.id === favorite) ?? null
@@ -82,6 +96,8 @@ PluginComponent {
     property string queueFolder: ""
     property bool queueFromLibrary: false
 
+    // Another app connected to the same helper started the cast.
+    readonly property string ownerName: session?.owner && session.owner.id !== clientId ? (session.owner.name || session.owner.id) : ""
     readonly property bool isMedia: session?.kind === "media"
     readonly property var sessionQueue: isMedia ? (session.queue ?? []) : []
     readonly property int sessionIndex: session?.index ?? 0
@@ -220,6 +236,15 @@ PluginComponent {
 
     function protocolsOf(device) {
         return device?.protocols ?? [device?.protocol ?? "chromecast"];
+    }
+
+    // Dropdowns pick by label, so a second device with the same name gets a number.
+    function deviceLabels(list) {
+        const seen = {};
+        return list.map(d => {
+            seen[d.name] = (seen[d.name] ?? 0) + 1;
+            return seen[d.name] > 1 ? d.name + " (" + seen[d.name] + ")" : d.name;
+        });
     }
 
     function canMedia(device) {
@@ -937,7 +962,7 @@ PluginComponent {
                 "commands": [
                     {
                         "label": "",
-                        "command": "doubletake-bin"
+                        "command": root.aurHelper + " -S doubletake-bin"
                     }
                 ]
             };
@@ -1037,7 +1062,7 @@ PluginComponent {
         case "unsupportedLink":
             return I18n.trFor("cast", "Only http and https links can be played");
         case "busy":
-            return I18n.trFor("cast", "Already casting");
+            return ownerName ? I18n.trFor("cast", "%1 is already casting").arg(ownerName) : I18n.trFor("cast", "Already casting");
         case "helperCrashed":
             return I18n.trFor("cast", "The cast helper stopped unexpectedly");
         case "avahi":
@@ -1080,8 +1105,14 @@ PluginComponent {
     function ensureRunning() {
         if (helper.running)
             return;
-        if (!helperResolved || !helperPath) {
-            console.info("cast: helper not started, path", helperResolved ? "not found" : "not resolved yet");
+        if (!helperResolved) {
+            console.info("cast: helper not started, path not resolved yet");
+            return;
+        }
+        if (!helperPath || helperOutdated) {
+            // The setup view takes over; nothing queued should run once the helper is installed.
+            _queue = [];
+            starting = false;
             return;
         }
         helper.stdinEnabled = true;
@@ -1119,6 +1150,12 @@ PluginComponent {
                     followIndex(session?.index ?? -1, next.index ?? 0);
                 if (!next && session && queueFromLibrary && !starting)
                     endShow();
+                // What this plugin sent doesn't describe another app's queue.
+                if (next?.owner && next.owner.id !== clientId && queueItems.length > 0) {
+                    queueItems = [];
+                    queueFolder = "";
+                    queueFromLibrary = false;
+                }
                 devices = msg.devices ?? [];
                 rememberDevices(devices);
                 session = next;
@@ -1134,6 +1171,16 @@ PluginComponent {
             console.warn("cast:", msg.code, msg.detail ?? "");
             return;
         case "check":
+            // Helpers up to 0.0.2 don't report it and speak protocol 1.
+            if ((msg.protocol ?? 1) < helperProtocol) {
+                console.warn("cast: helper speaks protocol", msg.protocol, "but the plugin needs", helperProtocol);
+                helperOutdated = true;
+                starting = false;
+                _queue = [];
+                helper.stdinEnabled = false;
+                return;
+            }
+            helperVersion = msg.version ?? "";
             missing = msg.missing ?? [];
             deps = msg.deps ?? [];
             distro = msg.distro ?? "arch";
@@ -1197,23 +1244,42 @@ PluginComponent {
         knownDevices = pluginService?.loadPluginState(pluginId, "knownDevices", {}) ?? {};
         findHelper();
         Proc.runCommand("cast.findPacman", ["test", "-x", "/usr/bin/pacman"], (out, code) => root.onArch = code === 0);
+        Proc.runCommand("cast.findAurHelper", ["sh", "-c", "command -v paru || command -v yay || true"], out => {
+            const found = out.trim().split("/").pop();
+            if (found)
+                root.aurHelper = found;
+        });
     }
 
+    // A helper path set in Settings wins (another install location, or a
+    // development build); then PATH, then the plugin's own folder.
     function findHelper() {
-        Proc.runCommand("cast.findHelper", ["sh", "-c", "command -v cast-helper || true"], (stdout, exitCode) => {
+        helperOutdated = false;
+        if (customHelper) {
+            Proc.runCommand("cast.findCustom", ["test", "-x", customHelper], (out, code) => root.useHelper(code === 0 ? root.customHelper : ""));
+            return;
+        }
+        Proc.runCommand("cast.findHelper", ["sh", "-c", "command -v cast-helper || true"], stdout => {
             const onPath = stdout.trim();
             if (onPath) {
-                root.helperPath = onPath;
-                root.helperResolved = true;
-                root.ensureRunningIfWanted();
+                root.useHelper(onPath);
                 return;
             }
-            Proc.runCommand("cast.findBundled", ["test", "-x", root.bundledHelper], (out, code) => {
-                root.helperPath = code === 0 ? root.bundledHelper : "";
-                root.helperResolved = true;
-                root.ensureRunningIfWanted();
-            });
+            Proc.runCommand("cast.findBundled", ["test", "-x", root.bundledHelper], (out, code) => root.useHelper(code === 0 ? root.bundledHelper : ""));
         });
+    }
+
+    function useHelper(path) {
+        helperPath = path;
+        helperResolved = true;
+        ensureRunningIfWanted();
+    }
+
+    // A running helper finishes and the next one starts from the new path.
+    onCustomHelperChanged: {
+        if (helper.running)
+            helper.stdinEnabled = false;
+        findHelper();
     }
 
     function ensureRunningIfWanted() {
@@ -1239,12 +1305,17 @@ PluginComponent {
     Process {
         id: helper
 
-        command: [root.helperPath]
+        command: [root.helperPath, "attach"]
         stdinEnabled: true
 
         onStarted: {
             console.info("cast: helper started:", root.helperPath);
             root._thumbPending = {};
+            root.send({
+                "cmd": "hello",
+                "client": root.clientId,
+                "name": "Dux Shell"
+            });
             root.send({
                 "cmd": "check"
             });
@@ -1258,12 +1329,14 @@ PluginComponent {
 
         onExited: (exitCode, exitStatus) => {
             console.info("cast: helper exited with", exitCode);
-            const wasCasting = root.casting || root.starting;
+            const wasWanted = root.wanted;
             root.session = null;
             root.starting = false;
             root.devices = [];
             root._queue = [];
-            if (exitCode !== 0 && wasCasting)
+            if (!root.wanted)
+                root.thumbs = {};
+            if (exitCode !== 0 && wasWanted)
                 root.lastError = {
                     "code": "helperCrashed"
                 };
@@ -1307,6 +1380,8 @@ PluginComponent {
         property string command: ""
         // A short label in front, such as which hardware the command is for.
         property string label: ""
+        // A web page instead of a command: it opens rather than being copied.
+        readonly property bool isLink: /^https?:\/\//.test(command)
 
         visible: command !== ""
         height: visible ? implicitHeight : 0
@@ -1335,11 +1410,16 @@ PluginComponent {
         DActionButton {
             id: copyButton
             anchors.verticalCenter: parent.verticalCenter
-            iconName: "content_copy"
+            iconName: commandRow.isLink ? "open_in_new" : "content_copy"
             iconSize: Theme.iconSizeSmall
-            tooltipText: I18n.trFor("cast", "Copy")
+            tooltipText: commandRow.isLink ? I18n.trFor("cast", "Open") : I18n.trFor("cast", "Copy")
             Accessible.name: tooltipText
-            onClicked: Quickshell.execDetached(["dms", "cl", "copy", commandRow.command])
+            onClicked: {
+                if (commandRow.isLink)
+                    Qt.openUrlExternally(commandRow.command);
+                else
+                    Quickshell.execDetached(["dms", "cl", "copy", commandRow.command]);
+            }
         }
     }
 
@@ -1474,7 +1554,10 @@ PluginComponent {
                 title: I18n.trFor("cast", "Pair with %1").arg(pairWin.service.sessionDevice?.name ?? "")
                 subtitle: pairWin.password ? I18n.trFor("cast", "Enter the AirPlay password") : I18n.trFor("cast", "Enter the code shown on the screen")
                 titleAlignment: Text.AlignLeft
-                onCloseRequested: pairWin.close()
+                onCloseRequested: {
+                    pairWin.answered = true;
+                    pairWin.service.stopCast();
+                }
             }
 
             DTextField {
@@ -1702,10 +1785,11 @@ PluginComponent {
                     dropdownWidth: CcMetrics.rowDropdownWidth
                     alignPopupRight: true
                     emptyText: I18n.trFor("cast", "No cast devices")
-                    options: win.service.mediaDevices.map(d => d.name)
-                    currentValue: win.device?.name ?? ""
+                    readonly property var labels: win.service.deviceLabels(win.service.mediaDevices)
+                    options: labels
+                    currentValue: labels[win.service.mediaDevices.findIndex(d => d.id === win.device?.id)] ?? ""
                     onValueChanged: value => {
-                        const target = win.service.mediaDevices.find(d => d.name === value);
+                        const target = win.service.mediaDevices[labels.indexOf(value)];
                         if (!target)
                             return;
                         win.service.playerDeviceId = target.id;

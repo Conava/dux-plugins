@@ -133,6 +133,8 @@ PluginComponent {
         property string command: ""
         // A short label in front, such as which hardware the command is for.
         property string label: ""
+        // A web page instead of a command: it opens rather than being copied.
+        readonly property bool isLink: /^https?:\/\//.test(command)
 
         visible: command !== ""
         height: visible ? implicitHeight : 0
@@ -161,11 +163,16 @@ PluginComponent {
         DActionButton {
             id: copyButton
             anchors.verticalCenter: parent.verticalCenter
-            iconName: "content_copy"
+            iconName: commandRow.isLink ? "open_in_new" : "content_copy"
             iconSize: Theme.iconSizeSmall
-            tooltipText: I18n.trFor("cast", "Copy")
+            tooltipText: commandRow.isLink ? I18n.trFor("cast", "Open") : I18n.trFor("cast", "Copy")
             Accessible.name: tooltipText
-            onClicked: Quickshell.execDetached(["dms", "cl", "copy", commandRow.command])
+            onClicked: {
+                if (commandRow.isLink)
+                    Qt.openUrlExternally(commandRow.command);
+                else
+                    Quickshell.execDetached(["dms", "cl", "copy", commandRow.command]);
+            }
         }
     }
 
@@ -221,8 +228,9 @@ PluginComponent {
         required property var service
         property string path: ""
         property string kind: ""
+        property string art: "" // a cover link from the app that sent the item
 
-        readonly property string source: kind === "image" ? (service?.fileUrl(path) ?? "") : (service?.thumbs[path] ?? "")
+        readonly property string source: art || (kind === "image" ? (service?.fileUrl(path) ?? "") : (service?.thumbs[path] ?? ""))
 
         function fetch() {
             if ((kind === "video" || kind === "audio") && path)
@@ -319,6 +327,7 @@ PluginComponent {
                     service: root.service
                     path: root.service?.currentItem?.path ?? ""
                     kind: root.service?.currentKind ?? ""
+                    art: root.service?.currentEntry?.art ?? ""
                     width: root.iconSize
                     height: width
                     radius: Theme.cornerRadiusS
@@ -459,8 +468,6 @@ PluginComponent {
         }
     }
 
-    popoutWidth: 400
-
     popoutContent: Component {
         PopoutComponent {
             id: popout
@@ -596,7 +603,8 @@ PluginComponent {
 
         readonly property string demandKey: "panel" + Math.random()
         readonly property bool helperMissing: service && service.helperResolved && !service.helperPath
-        readonly property bool needsSetup: helperMissing
+        readonly property bool helperOutdated: !!service?.helperOutdated
+        readonly property bool needsSetup: helperMissing || helperOutdated
         readonly property var session: service?.session ?? null
         readonly property bool isMedia: service?.isMedia ?? false
         readonly property bool connecting: !!session && (session.phase === "starting" || session.phase === "authorizing" || session.phase === "pairing")
@@ -671,11 +679,12 @@ PluginComponent {
             case "stopping":
                 return I18n.trFor("cast", "Stopping...");
             }
-            return I18n.trFor("cast", "Mirroring");
+            return service.ownerName ? I18n.trFor("cast", "Mirroring from %1").arg(service.ownerName) : I18n.trFor("cast", "Mirroring");
         }
 
         function mediaSubtitle() {
-            const name = service.sessionDevice?.name ?? "";
+            const device = service.sessionDevice?.name ?? "";
+            const name = service.ownerName ? device + " · " + I18n.trFor("cast", "Playing from %1").arg(service.ownerName) : device;
             if (service.currentEntry?.status === "failed")
                 return service.itemErrorText(service.currentEntry);
             if (service.preparing)
@@ -719,14 +728,14 @@ PluginComponent {
         // Setup required
         CcEmptyState {
             width: parent.width
-            visible: panel.helperMissing
+            visible: panel.needsSetup
             iconName: "build"
-            title: I18n.trFor("cast", "Cast helper not installed")
+            title: panel.helperOutdated ? I18n.trFor("cast", "Cast helper is outdated") : I18n.trFor("cast", "Cast helper not installed")
             subtitle: panel.service?.onArch ? I18n.trFor("cast", "Install it from the AUR, which also installs the packages it needs") : I18n.trFor("cast", "Download it with this command, or build it from source")
 
             CommandRow {
                 width: parent.width
-                command: panel.service?.onArch ? "yay -S cast-helper" : ""
+                command: panel.service?.onArch ? panel.service.aurHelper + " -S cast-helper" : ""
             }
 
             CommandRow {
@@ -758,7 +767,7 @@ PluginComponent {
         }
 
         CcGroup {
-            visible: !panel.helperMissing && (panel.service?.missing.length ?? 0) > 0
+            visible: !panel.needsSetup && (panel.service?.missing.length ?? 0) > 0
 
             CcEmptyState {
                 iconName: "build"
@@ -773,7 +782,7 @@ PluginComponent {
 
         CcGroup {
             id: missingGroup
-            visible: !panel.helperMissing && (panel.service?.missing.length ?? 0) > 0
+            visible: !panel.needsSetup && (panel.service?.missing.length ?? 0) > 0
 
             Repeater {
                 model: panel.service?.missing ?? []
@@ -960,6 +969,7 @@ PluginComponent {
                             service: panel.service
                             path: panel.service?.currentItem?.path ?? ""
                             kind: panel.service?.currentKind ?? ""
+                            art: panel.service?.currentEntry?.art ?? ""
                             width: Theme.listItemTwoLineHeight * 4 / 3
                             height: width * 9 / 16
                             radius: Theme.cornerRadiusM
@@ -1247,9 +1257,10 @@ PluginComponent {
                 compactMode: true
                 dropdownWidth: CcMetrics.headerDropdownWidth
                 alignPopupRight: true
-                options: panel.mediaDevices.map(d => d.name)
-                currentValue: panel.sendTarget?.name ?? ""
-                onValueChanged: value => panel.sendToId = panel.mediaDevices.find(d => d.name === value)?.id ?? ""
+                readonly property var labels: panel.service?.deviceLabels(panel.mediaDevices) ?? []
+                options: labels
+                currentValue: labels[panel.mediaDevices.findIndex(d => d.id === panel.sendTarget?.id)] ?? ""
+                onValueChanged: value => panel.sendToId = panel.mediaDevices[labels.indexOf(value)]?.id ?? ""
             }
         }
 

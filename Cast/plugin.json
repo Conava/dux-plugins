@@ -2,7 +2,7 @@
     "id": "cast",
     "name": "Cast",
     "description": "Mirror your screen to Chromecast, Google TV and AirPlay devices, and play files, music, playlists, slideshows and links on Chromecast",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "author": "Marlon Kranz",
     "type": "composite",
     "capabilities": ["daemon", "dankbar-widget", "control-center"],
