@@ -6,8 +6,9 @@
 #   ./dev check [PLUGIN...]      validate manifests (all plugins when none given)
 #   ./dev link PLUGIN            symlink PLUGIN into the running shell's plugin dir and rescan
 #   ./dev reload PLUGIN          reload PLUGIN in the running shell and print its status
-#                                (link and reload also build helpers/<id>/ if the plugin has one
-#                                and point the plugin's helperPath setting at that build)
+#                                (link and reload also build the plugin's helper from a checkout
+#                                next to this repo, ../dux-<id>, and point the plugin's
+#                                helperPath setting at that build)
 #   ./dev unlink PLUGIN          remove the symlink and the helperPath setting again
 #   ./dev strings PLUGIN [LOCALE] sync translations/*.json (or start LOCALE.json) with the code
 #
@@ -104,16 +105,22 @@ sys.exit(failed)
 EOF
 }
 
-# A plugin with a Go helper keeps it in helpers/<id>/. Build it next to the
-# plugin's data and point its helperPath setting there, so the running shell
-# uses this build over an installed helper. The shell picks the change up live.
+# A plugin's Go helper lives in its own repo, checked out next to this one as
+# dux-<id>. Build it next to the plugin's data and point its helperPath setting
+# there, so the running shell uses this build over an installed helper; the
+# shell picks the change up live. A shared helper still running the previous
+# build is stopped, and the plugin starts the new one.
+helper_src() { (cd "$root/../dux-$1" 2>/dev/null && pwd) || echo "$root/../dux-$1"; }
+
 build_helper() {
-    local id=$1 src="$root/helpers/$1"
+    local id=$1 src
+    src=$(helper_src "$id")
     [ -f "$src/go.mod" ] || return 0
     local out="${XDG_DATA_HOME:-$HOME/.local/share}/dms/$id/dev/$id-helper"
     (cd "$src" && CGO_ENABLED=0 go build -o "$out" .) || die "building $id-helper failed"
     set_helper_path "$id" "$out"
-    echo "built $out"
+    pkill -f -x "$out serve" || true
+    echo "built $out from $src"
 }
 
 # Sets (or with no path, removes) a plugin's helperPath setting.
@@ -160,7 +167,7 @@ cmd_unlink() {
     dir=$(plugin_dir "${1:-}"); id=$(plugin_id "$dir"); link="$plugins_dir/$id"
     [ -L "$link" ] && [ "$(readlink -f "$link")" = "$dir" ] || die "$link is not a link to this repo"
     rm "$link"
-    [ -f "$root/helpers/$id/go.mod" ] && set_helper_path "$id"
+    [ -f "$(helper_src "$id")/go.mod" ] && set_helper_path "$id"
     dms ipc plugin-scan scan >/dev/null
     echo "unlinked $link"
 }

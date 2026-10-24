@@ -4,6 +4,7 @@ import QtQuick
 import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.Mpris
 import qs.Common
 import qs.DCommon.Widgets
 import qs.Modals.FileBrowser
@@ -26,21 +27,20 @@ PluginComponent {
     readonly property string bundledHelper: Paths.strip(Paths.data) + "/cast/bin/" + helperName
     property string helperPath: ""
     property bool helperResolved: false
-    // Bumped with helpers/cast/main.go's protocolVersion when the messages change.
-    readonly property int helperProtocol: 1
+    // The lowest protocol this plugin works with (cast-helper's protocolVersion).
+    readonly property int helperProtocol: 2
+    // How the helper names this plugin to other apps using it.
+    readonly property string clientId: "dms"
     property bool helperOutdated: false
     readonly property string customHelper: (pluginData.helperPath ?? "").trim().replace(/^~\//, Quickshell.env("HOME") + "/")
     readonly property string installGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#3-install-cast-helper"
     // Arch gets the helper from the AUR, which also installs the packages it needs.
     property bool onArch: false
     property string aurHelper: "yay"
-    // Downloads the helper built for this plugin version from the repository's
-    // releases and installs it only if it matches the release's SHA256SUMS.
+    // Downloads the newest helper release and installs it only if it matches
+    // the release's SHA256SUMS.
     readonly property string helperDownloadCommand: {
-        const version = pluginService?.availablePlugins?.[pluginId]?.version ?? "";
-        if (!version)
-            return "";
-        const base = "https://github.com/Conava/dux-plugins/releases/download/cast-v" + version;
+        const base = "https://github.com/Conava/dux-cast/releases/latest/download";
         const dir = bundledHelper.substring(0, bundledHelper.lastIndexOf("/"));
         const file = helperName + "-$(uname -m)";
         return "(mkdir -p " + dir + " && cd " + dir + " && dms dl " + base + "/" + file + " --timeout 300 -o " + file
@@ -66,7 +66,10 @@ PluginComponent {
     // The TV loads local files from this port, so a firewall rule can allow it.
     readonly property int mediaPort: parseInt(pluginData.mediaPort ?? "47830") || 47830
     readonly property bool casting: session !== null
-    readonly property bool wanted: discoveryWanted || casting || starting
+    // The helper is on MPRIS while it casts, also for another app connected to
+    // it; the plugin attaches then to show and control that cast.
+    readonly property bool helperCasting: Mpris.players.values.some(p => p.dbusName === "org.mpris.MediaPlayer2.cast")
+    readonly property bool wanted: discoveryWanted || casting || starting || helperCasting
 
     readonly property string favorite: pluginData.favoriteDevice ?? ""
     readonly property var favoriteDevice: devices.find(d => d.id === favorite) ?? null
@@ -92,6 +95,8 @@ PluginComponent {
     property string queueFolder: ""
     property bool queueFromLibrary: false
 
+    // Another app connected to the same helper started the cast.
+    readonly property string ownerName: session?.owner && session.owner.id !== clientId ? (session.owner.name || session.owner.id) : ""
     readonly property bool isMedia: session?.kind === "media"
     readonly property var sessionQueue: isMedia ? (session.queue ?? []) : []
     readonly property int sessionIndex: session?.index ?? 0
@@ -1144,6 +1149,12 @@ PluginComponent {
                     followIndex(session?.index ?? -1, next.index ?? 0);
                 if (!next && session && queueFromLibrary && !starting)
                     endShow();
+                // What this plugin sent doesn't describe another app's queue.
+                if (next?.owner && next.owner.id !== clientId && queueItems.length > 0) {
+                    queueItems = [];
+                    queueFolder = "";
+                    queueFromLibrary = false;
+                }
                 devices = msg.devices ?? [];
                 rememberDevices(devices);
                 session = next;
@@ -1160,7 +1171,7 @@ PluginComponent {
             return;
         case "check":
             // Helpers up to 0.0.2 don't report it and speak protocol 1.
-            if ((msg.protocol ?? 1) !== helperProtocol) {
+            if ((msg.protocol ?? 1) < helperProtocol) {
                 console.warn("cast: helper speaks protocol", msg.protocol, "but the plugin needs", helperProtocol);
                 helperOutdated = true;
                 starting = false;
@@ -1292,12 +1303,17 @@ PluginComponent {
     Process {
         id: helper
 
-        command: [root.helperPath]
+        command: [root.helperPath, "attach"]
         stdinEnabled: true
 
         onStarted: {
             console.info("cast: helper started:", root.helperPath);
             root._thumbPending = {};
+            root.send({
+                "cmd": "hello",
+                "client": root.clientId,
+                "name": "Dux Shell"
+            });
             root.send({
                 "cmd": "check"
             });

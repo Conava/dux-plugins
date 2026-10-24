@@ -79,8 +79,8 @@ Enable it in Settings > Plugins and add it to a bar or the Control Center.
 ### 3. Install cast-helper
 
 The plugin looks for `cast-helper` on `PATH`, then in `~/.local/share/dms/cast/bin/`. A helper
-installed somewhere else can be set in Settings > Helper path. Source:
-[`helpers/cast/`](../helpers/cast). Use one of these:
+installed somewhere else can be set in Settings > Helper path. It lives in its own repository,
+[dux-cast](https://github.com/Conava/dux-cast), so other apps can share it. Use one of these:
 
 Arch: install it from the AUR. This also installs the required packages from step 1.
 
@@ -93,9 +93,9 @@ It is only installed if it matches the release's checksums:
 
 ```bash
 (mkdir -p ~/.local/share/dms/cast/bin && cd ~/.local/share/dms/cast/bin \
-  && dms dl https://github.com/Conava/dux-plugins/releases/download/cast-v0.0.3/cast-helper-$(uname -m) \
+  && dms dl https://github.com/Conava/dux-cast/releases/latest/download/cast-helper-$(uname -m) \
     --timeout 300 -o cast-helper-$(uname -m) \
-  && dms dl https://github.com/Conava/dux-plugins/releases/download/cast-v0.0.3/SHA256SUMS \
+  && dms dl https://github.com/Conava/dux-cast/releases/latest/download/SHA256SUMS \
     | grep " cast-helper-$(uname -m)$" | sha256sum -c \
   && mv cast-helper-$(uname -m) cast-helper && chmod +x cast-helper)
 ```
@@ -103,7 +103,7 @@ It is only installed if it matches the release's checksums:
 Or build it from source (Go 1.25 or newer, no C compiler):
 
 ```bash
-cd ~/.local/src/dux-plugins/helpers/cast
+git clone https://github.com/Conava/dux-cast.git ~/.local/src/dux-cast && cd ~/.local/src/dux-cast
 CGO_ENABLED=0 go build -o ~/.local/share/dms/cast/bin/cast-helper .
 ```
 
@@ -153,18 +153,21 @@ commands.
 - Settings above 1080p at 30 fps are marked experimental: they can lag on slow networks or devices.
 - Mirroring asks for the screen through the desktop portal. The choice is remembered.
 - Discovery is IPv4 only.
+- Other apps can use the same helper. Their casts show in the bar and the Control Center too, with
+  the app they play from.
 
 ## Network and files
 
 Apart from the cast devices on the local network, Cast only contacts youtube.com, when a YouTube
 link is played, and the server of a pasted direct link (or a link in a playlist file), to ask for
-its media type when the address doesn't show it. It writes to:
+its media type when the address doesn't show it. Covers of songs another app casts are loaded from
+where that app says. It writes to:
 
 | Path | Contents |
 |---|---|
-| `~/.cache/dms/cast` | Converted files while they play, thumbnails |
+| `~/.cache/dms/cast` | Converted files while they play, thumbnails, the helper's log |
 | `~/.local/share/dms/cast` | The helpers, AirPlay pairings |
-| `$XDG_RUNTIME_DIR/dms-cast` | doubletake's control socket during an AirPlay cast |
+| `$XDG_RUNTIME_DIR` | The helper's socket and lock, `dms-cast/` during an AirPlay cast |
 
 ## License
 

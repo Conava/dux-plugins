@@ -221,8 +221,9 @@ PluginComponent {
         required property var service
         property string path: ""
         property string kind: ""
+        property string art: "" // a cover link from the app that sent the item
 
-        readonly property string source: kind === "image" ? (service?.fileUrl(path) ?? "") : (service?.thumbs[path] ?? "")
+        readonly property string source: art || (kind === "image" ? (service?.fileUrl(path) ?? "") : (service?.thumbs[path] ?? ""))
 
         function fetch() {
             if ((kind === "video" || kind === "audio") && path)
@@ -319,6 +320,7 @@ PluginComponent {
                     service: root.service
                     path: root.service?.currentItem?.path ?? ""
                     kind: root.service?.currentKind ?? ""
+                    art: root.service?.currentEntry?.art ?? ""
                     width: root.iconSize
                     height: width
                     radius: Theme.cornerRadiusS
@@ -670,11 +672,12 @@ PluginComponent {
             case "stopping":
                 return I18n.trFor("cast", "Stopping...");
             }
-            return I18n.trFor("cast", "Mirroring");
+            return service.ownerName ? I18n.trFor("cast", "Mirroring from %1").arg(service.ownerName) : I18n.trFor("cast", "Mirroring");
         }
 
         function mediaSubtitle() {
-            const name = service.sessionDevice?.name ?? "";
+            const device = service.sessionDevice?.name ?? "";
+            const name = service.ownerName ? device + " · " + I18n.trFor("cast", "Playing from %1").arg(service.ownerName) : device;
             if (service.currentEntry?.status === "failed")
                 return service.itemErrorText(service.currentEntry);
             if (service.preparing)
@@ -959,6 +962,7 @@ PluginComponent {
                             service: panel.service
                             path: panel.service?.currentItem?.path ?? ""
                             kind: panel.service?.currentKind ?? ""
+                            art: panel.service?.currentEntry?.art ?? ""
                             width: Theme.listItemTwoLineHeight * 4 / 3
                             height: width * 9 / 16
                             radius: Theme.cornerRadiusM
