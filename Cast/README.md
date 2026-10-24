@@ -3,7 +3,27 @@
 Mirror your screen to Chromecast, Google TV and AirPlay devices, and play files, music, playlists,
 slideshows and links on Chromecast devices, from the bar or the Control Center.
 
-![The player and the popout during a cast](screenshot.png)
+![The player's start page next to the Cast popout](screenshots/overview.png)
+
+<details>
+<summary>See it in action</summary>
+
+The player shows what the TV shows, with the whole show in the filmstrip below.
+
+![The player with a slideshow ready to start on the TV](screenshots/player.png)
+
+The popout lists the devices on the network. For a TV with both Chromecast and AirPlay, the buttons
+next to it pick which one mirrors, and the pin makes it the default.
+
+![The popout with a TV found](screenshots/devices.png)
+
+While something plays, the bar pill and the popout show it with its controls.
+
+![A YouTube link playing, in the bar pill and the popout](screenshots/playing.png)
+
+![The popout looking for devices](screenshots/searching.png)
+
+</details>
 
 ## Features
 
