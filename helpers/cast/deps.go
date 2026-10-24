@@ -151,7 +151,7 @@ func dependencyReport() map[string]any {
 		deps = append(deps, dep)
 	}
 	// missing (required only) keeps the setup view working as before.
-	return map[string]any{"event": "check", "distro": distro, "deps": deps, "missing": missing}
+	return map[string]any{"event": "check", "protocol": protocolVersion, "distro": distro, "deps": deps, "missing": missing}
 }
 
 // distroFamily maps os-release to a package naming the table knows: arch,

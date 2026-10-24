@@ -459,8 +459,6 @@ PluginComponent {
         }
     }
 
-    popoutWidth: 400
-
     popoutContent: Component {
         PopoutComponent {
             id: popout
@@ -596,7 +594,8 @@ PluginComponent {
 
         readonly property string demandKey: "panel" + Math.random()
         readonly property bool helperMissing: service && service.helperResolved && !service.helperPath
-        readonly property bool needsSetup: helperMissing
+        readonly property bool helperOutdated: !!service?.helperOutdated
+        readonly property bool needsSetup: helperMissing || helperOutdated
         readonly property var session: service?.session ?? null
         readonly property bool isMedia: service?.isMedia ?? false
         readonly property bool connecting: !!session && (session.phase === "starting" || session.phase === "authorizing" || session.phase === "pairing")
@@ -719,14 +718,14 @@ PluginComponent {
         // Setup required
         CcEmptyState {
             width: parent.width
-            visible: panel.helperMissing
+            visible: panel.needsSetup
             iconName: "build"
-            title: I18n.trFor("cast", "Cast helper not installed")
+            title: panel.helperOutdated ? I18n.trFor("cast", "Cast helper is outdated") : I18n.trFor("cast", "Cast helper not installed")
             subtitle: panel.service?.onArch ? I18n.trFor("cast", "Install it from the AUR, which also installs the packages it needs") : I18n.trFor("cast", "Download it with this command, or build it from source")
 
             CommandRow {
                 width: parent.width
-                command: panel.service?.onArch ? "yay -S cast-helper" : ""
+                command: panel.service?.onArch ? panel.service.aurHelper + " -S cast-helper" : ""
             }
 
             CommandRow {
@@ -758,7 +757,7 @@ PluginComponent {
         }
 
         CcGroup {
-            visible: !panel.helperMissing && (panel.service?.missing.length ?? 0) > 0
+            visible: !panel.needsSetup && (panel.service?.missing.length ?? 0) > 0
 
             CcEmptyState {
                 iconName: "build"
@@ -773,7 +772,7 @@ PluginComponent {
 
         CcGroup {
             id: missingGroup
-            visible: !panel.helperMissing && (panel.service?.missing.length ?? 0) > 0
+            visible: !panel.needsSetup && (panel.service?.missing.length ?? 0) > 0
 
             Repeater {
                 model: panel.service?.missing ?? []
@@ -1247,9 +1246,10 @@ PluginComponent {
                 compactMode: true
                 dropdownWidth: CcMetrics.headerDropdownWidth
                 alignPopupRight: true
-                options: panel.mediaDevices.map(d => d.name)
-                currentValue: panel.sendTarget?.name ?? ""
-                onValueChanged: value => panel.sendToId = panel.mediaDevices.find(d => d.name === value)?.id ?? ""
+                readonly property var labels: panel.service?.deviceLabels(panel.mediaDevices) ?? []
+                options: labels
+                currentValue: labels[panel.mediaDevices.findIndex(d => d.id === panel.sendTarget?.id)] ?? ""
+                onValueChanged: value => panel.sendToId = panel.mediaDevices[labels.indexOf(value)]?.id ?? ""
             }
         }
 

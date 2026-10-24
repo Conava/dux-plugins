@@ -40,12 +40,7 @@ func (p *portalSession) Close() {
 // requestScreencast opens a ScreenCast portal session for one monitor with an
 // embedded cursor and returns it with the token that skips the share dialog
 // next time. Shows the dialog unless restoreToken is still valid.
-func requestScreencast(ctx context.Context, restoreToken string) (p *portalSession, newToken string, err error) {
-	p, newToken, err = openScreencast(ctx, restoreToken)
-	return
-}
-
-func openScreencast(ctx context.Context, restoreToken string) (*portalSession, string, error) {
+func requestScreencast(ctx context.Context, restoreToken string) (*portalSession, string, error) {
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		return nil, "", err

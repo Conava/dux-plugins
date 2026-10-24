@@ -134,6 +134,7 @@ func (c cleanups) run() {
 // code for the plugin ("" when the user stopped it).
 func (s *session) run() (code string, err error) {
 	defer close(s.done)
+	defer s.cancel() // also when the device ends the session
 	var undo cleanups
 	defer func() { undo.run() }()
 	stopped := func(c string, e error) (string, error) {

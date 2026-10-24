@@ -20,6 +20,7 @@ func discover(ctx context.Context, onChange func([]device)) error {
 	if err != nil {
 		return err
 	}
+	defer d.Stop()
 	found := map[string]Device{}
 	for {
 		select {

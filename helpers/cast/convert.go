@@ -143,7 +143,7 @@ func convertVideo(ctx context.Context, file string, v videoInfo, progress func(f
 		desc += "d. ! queue ! audioconvert ! audioresample ! avenc_aac bitrate=256000 ! aacparse ! mux.audio_0 "
 	}
 	desc += "mp4mux name=mux faststart=true ! filesink name=sink"
-	out, err := cacheFile("conv.mp4")
+	out, err := newCacheFile("conv.mp4")
 	if err != nil {
 		return "", err
 	}
@@ -164,15 +164,35 @@ func convertVideo(ctx context.Context, file string, v videoInfo, progress func(f
 // cacheFile names a temporary file in the helper's cache directory; stale
 // ones are removed at startup.
 func cacheFile(suffix string) (string, error) {
+	dir, err := cacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, fmt.Sprintf("%d-%s", os.Getpid(), suffix)), nil
+}
+
+// newCacheFile is cacheFile with a name no other call returns, for outputs
+// that several queue items produce.
+func newCacheFile(suffix string) (string, error) {
+	dir, err := cacheDir()
+	if err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, fmt.Sprintf("%d-*-%s", os.Getpid(), suffix))
+	if err != nil {
+		return "", err
+	}
+	f.Close()
+	return f.Name(), nil
+}
+
+func cacheDir() (string, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
 	dir := filepath.Join(cache, "dms", "cast")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, fmt.Sprintf("%d-%s", os.Getpid(), suffix)), nil
+	return dir, os.MkdirAll(dir, 0o700)
 }
 
 type gList struct{ data, next, prev uintptr }

@@ -53,6 +53,7 @@ type mediaSession struct {
 	requestID int64
 	loadReq   int64 // the LOAD whose answer names the media session
 	working   bool  // the preparing goroutine runs
+	prep      sync.WaitGroup
 	srv       *server
 	stopMpris func()
 	player    *Player
@@ -242,6 +243,14 @@ func (m *mediaSession) run() (code string, err error) {
 		}
 		m.mu.Unlock()
 	}()
+	// A session the device ended still has to stop a conversion in progress
+	// before its files are removed.
+	defer func() {
+		m.mu.Lock()
+		m.cancel()
+		m.mu.Unlock()
+		m.prep.Wait()
+	}()
 	stopped := func(c string, e error) (string, error) {
 		if m.ctx.Err() != nil {
 			return "", nil
@@ -308,8 +317,8 @@ func (m *mediaSession) run() (code string, err error) {
 	undo.add(func() { m.stopMpris() })
 
 	if youtube {
-		m.items[0].status = "ready"
 		m.mu.Lock()
+		m.items[0].status = "ready"
 		m.st.follow = true
 		m.mu.Unlock()
 		yt, _ := parseYouTube(m.items[0].source)
@@ -536,13 +545,15 @@ func requestIDOf(p []byte) int64 {
 // time: the current one first, then the next video or the next two photos.
 func (m *mediaSession) prepareAhead() {
 	m.mu.Lock()
-	if m.working || m.srv == nil && !m.hasLinks() {
+	if m.working || m.ctx.Err() != nil || m.srv == nil && !m.hasLinks() {
 		m.mu.Unlock()
 		return
 	}
 	m.working = true
+	m.prep.Add(1)
 	m.mu.Unlock()
 	go func() {
+		defer m.prep.Done()
 		for {
 			m.mu.Lock()
 			i := m.nextToPrepare()

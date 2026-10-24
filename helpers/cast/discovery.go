@@ -133,6 +133,24 @@ type Discovery struct {
 	resolves chan resolveResult
 	browsers map[dbus.ObjectPath]string // path -> protocol
 	reg      *registry
+	done     chan struct{}
+}
+
+// Stop ends discovery; nothing blocks on Events or Errors after it.
+func (d *Discovery) Stop() { close(d.done) }
+
+func (d *Discovery) event(e DeviceEvent) {
+	select {
+	case d.Events <- e:
+	case <-d.done:
+	}
+}
+
+func (d *Discovery) fail(err error) {
+	select {
+	case d.Errors <- err:
+	case <-d.done:
+	}
 }
 
 type resolveResult struct {
@@ -151,6 +169,7 @@ func StartDiscovery(conn *dbus.Conn) (*Discovery, error) {
 		sig:      make(chan *dbus.Signal, 64),
 		resolves: make(chan resolveResult, 16),
 		reg:      newRegistry(),
+		done:     make(chan struct{}),
 	}
 	conn.Signal(d.sig)
 	for _, m := range [][]dbus.MatchOption{
@@ -189,6 +208,8 @@ func (d *Discovery) browse() error {
 func (d *Discovery) loop() {
 	for {
 		select {
+		case <-d.done:
+			return
 		case s, ok := <-d.sig:
 			if !ok {
 				return
@@ -200,7 +221,7 @@ func (d *Discovery) loop() {
 				continue
 			}
 			if d.reg.resolved(r.in, r.dev) {
-				d.Events <- DeviceEvent{Added: true, Device: r.dev}
+				d.event(DeviceEvent{Added: true, Device: r.dev})
 			}
 		}
 	}
@@ -220,29 +241,29 @@ func (d *Discovery) handle(s *dbus.Signal) {
 		in := instance{iface: s.Body[0].(int32), name: s.Body[2].(string), stype: s.Body[3].(string), domain: s.Body[4].(string)}
 		if s.Name == avahiBrowserIf+".ItemRemove" {
 			if dev, gone := d.reg.removed(in); gone {
-				d.Events <- DeviceEvent{Added: false, Device: dev}
+				d.event(DeviceEvent{Added: false, Device: dev})
 			}
 			return
 		}
 		d.reg.pending(in)
 		go d.resolve(in, protocol)
 	case avahiBrowserIf + ".Failure":
-		d.Errors <- fmt.Errorf("browser failed: %v", s.Body)
+		d.fail(fmt.Errorf("browser failed: %v", s.Body))
 	}
 }
 
 // ownerChanged handles avahi stopping (all devices gone) and coming back (browse again).
 func (d *Discovery) ownerChanged(newOwner string) {
 	for _, dev := range d.reg.clear() {
-		d.Events <- DeviceEvent{Added: false, Device: dev}
+		d.event(DeviceEvent{Added: false, Device: dev})
 	}
 	d.browsers = nil
 	if newOwner == "" {
-		d.Errors <- ErrAvahiUnavailable
+		d.fail(ErrAvahiUnavailable)
 		return
 	}
 	if err := d.browse(); err != nil {
-		d.Errors <- err
+		d.fail(err)
 	}
 }
 
@@ -259,5 +280,8 @@ func (d *Discovery) resolve(in instance, protocol string) {
 		Store(&iface, &proto, &name, &stype, &domain, &host, &aproto, &addr, &port, &txt, &flags)
 	dev := parseTXT(protocol, in.name, txt)
 	dev.Host, dev.Addr, dev.Port = host, addr, port
-	d.resolves <- resolveResult{in: in, dev: dev, err: err}
+	select {
+	case d.resolves <- resolveResult{in: in, dev: dev, err: err}:
+	case <-d.done:
+	}
 }

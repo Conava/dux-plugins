@@ -102,6 +102,7 @@ type dtStatus struct {
 
 func (a *airplaySession) run() (code string, err error) {
 	defer close(a.done)
+	defer a.cancel() // also when the device ends the session
 	var undo cleanups
 	defer func() { undo.run() }()
 	stopped := func(c string, e error) (string, error) {
@@ -117,15 +118,18 @@ func (a *airplaySession) run() (code string, err error) {
 		a.h.emit(map[string]any{"event": "warning", "code": "airplaySound"})
 	}
 
-	runtime := os.Getenv("XDG_RUNTIME_DIR")
-	if runtime == "" {
-		runtime = os.TempDir()
+	// Not /tmp: another user could create the folder there first.
+	dir, err := cacheDir()
+	if runtime := os.Getenv("XDG_RUNTIME_DIR"); runtime != "" {
+		dir = filepath.Join(runtime, "dms-cast")
+		err = os.MkdirAll(dir, 0o700)
 	}
-	dir := filepath.Join(runtime, "dms-cast")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err != nil {
 		return "airplayFailed", err
 	}
 	sock := filepath.Join(dir, "doubletake.sock")
+	// A doubletake that died left its socket behind.
+	os.Remove(sock)
 	data, err := dataDir()
 	if err != nil {
 		return "airplayFailed", err

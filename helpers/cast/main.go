@@ -158,6 +158,10 @@ func main() {
 	}
 }
 
+// protocolVersion goes up when a command or event changes incompatibly; the
+// plugin asks for an update when its own number differs.
+const protocolVersion = 1
+
 func (h *helper) handle(c command) {
 	switch c.Cmd {
 	case "check":
@@ -501,7 +505,9 @@ func removeStaleRemuxes() {
 		return
 	}
 	stale, _ := filepath.Glob(filepath.Join(cache, "dms", "cast", "[0-9]*-*"))
-	for _, f := range stale {
+	// Helpers up to 0.0.2 named remuxes <pid>.mp4.
+	old, _ := filepath.Glob(filepath.Join(cache, "dms", "cast", "[0-9]*.mp4*"))
+	for _, f := range append(stale, old...) {
 		os.Remove(f)
 	}
 }

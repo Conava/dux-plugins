@@ -26,16 +26,26 @@ PluginComponent {
     readonly property string bundledHelper: Paths.strip(Paths.data) + "/cast/bin/" + helperName
     property string helperPath: ""
     property bool helperResolved: false
+    // Bumped with helpers/cast/main.go's protocolVersion when the messages change.
+    readonly property int helperProtocol: 1
+    property bool helperOutdated: false
+    readonly property string customHelper: (pluginData.helperPath ?? "").trim().replace(/^~\//, Quickshell.env("HOME") + "/")
     readonly property string installGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#3-install-cast-helper"
     // Arch gets the helper from the AUR, which also installs the packages it needs.
     property bool onArch: false
-    // Downloads the helper built for this plugin version from the repository's releases.
+    property string aurHelper: "yay"
+    // Downloads the helper built for this plugin version from the repository's
+    // releases and installs it only if it matches the release's SHA256SUMS.
     readonly property string helperDownloadCommand: {
         const version = pluginService?.availablePlugins?.[pluginId]?.version ?? "";
         if (!version)
             return "";
-        const url = "https://github.com/Conava/dux-plugins/releases/download/cast-v" + version + "/" + helperName + "-$(uname -m)";
-        return "dms dl " + url + " --timeout 300 -o " + bundledHelper + " && chmod +x " + bundledHelper;
+        const base = "https://github.com/Conava/dux-plugins/releases/download/cast-v" + version;
+        const dir = bundledHelper.substring(0, bundledHelper.lastIndexOf("/"));
+        const file = helperName + "-$(uname -m)";
+        return "(mkdir -p " + dir + " && cd " + dir + " && dms dl " + base + "/" + file + " --timeout 300 -o " + file
+            + " && dms dl " + base + "/SHA256SUMS | grep \" " + file + "$\" | sha256sum -c && mv " + file + " " + helperName
+            + " && chmod +x " + helperName + ")";
     }
 
     property var devices: []
@@ -220,6 +230,15 @@ PluginComponent {
 
     function protocolsOf(device) {
         return device?.protocols ?? [device?.protocol ?? "chromecast"];
+    }
+
+    // Dropdowns pick by label, so a second device with the same name gets a number.
+    function deviceLabels(list) {
+        const seen = {};
+        return list.map(d => {
+            seen[d.name] = (seen[d.name] ?? 0) + 1;
+            return seen[d.name] > 1 ? d.name + " (" + seen[d.name] + ")" : d.name;
+        });
     }
 
     function canMedia(device) {
@@ -937,7 +956,7 @@ PluginComponent {
                 "commands": [
                     {
                         "label": "",
-                        "command": "doubletake-bin"
+                        "command": root.aurHelper + " -S doubletake-bin"
                     }
                 ]
             };
@@ -1080,8 +1099,14 @@ PluginComponent {
     function ensureRunning() {
         if (helper.running)
             return;
-        if (!helperResolved || !helperPath) {
-            console.info("cast: helper not started, path", helperResolved ? "not found" : "not resolved yet");
+        if (!helperResolved) {
+            console.info("cast: helper not started, path not resolved yet");
+            return;
+        }
+        if (!helperPath || helperOutdated) {
+            // The setup view takes over; nothing queued should run once the helper is installed.
+            _queue = [];
+            starting = false;
             return;
         }
         helper.stdinEnabled = true;
@@ -1134,6 +1159,15 @@ PluginComponent {
             console.warn("cast:", msg.code, msg.detail ?? "");
             return;
         case "check":
+            // Helpers up to 0.0.2 don't report it and speak protocol 1.
+            if ((msg.protocol ?? 1) !== helperProtocol) {
+                console.warn("cast: helper speaks protocol", msg.protocol, "but the plugin needs", helperProtocol);
+                helperOutdated = true;
+                starting = false;
+                _queue = [];
+                helper.stdinEnabled = false;
+                return;
+            }
             missing = msg.missing ?? [];
             deps = msg.deps ?? [];
             distro = msg.distro ?? "arch";
@@ -1197,23 +1231,42 @@ PluginComponent {
         knownDevices = pluginService?.loadPluginState(pluginId, "knownDevices", {}) ?? {};
         findHelper();
         Proc.runCommand("cast.findPacman", ["test", "-x", "/usr/bin/pacman"], (out, code) => root.onArch = code === 0);
+        Proc.runCommand("cast.findAurHelper", ["sh", "-c", "command -v paru || command -v yay || true"], out => {
+            const found = out.trim().split("/").pop();
+            if (found)
+                root.aurHelper = found;
+        });
     }
 
+    // A helper path set in Settings wins (another install location, or a
+    // development build); then PATH, then the plugin's own folder.
     function findHelper() {
-        Proc.runCommand("cast.findHelper", ["sh", "-c", "command -v cast-helper || true"], (stdout, exitCode) => {
+        helperOutdated = false;
+        if (customHelper) {
+            Proc.runCommand("cast.findCustom", ["test", "-x", customHelper], (out, code) => root.useHelper(code === 0 ? root.customHelper : ""));
+            return;
+        }
+        Proc.runCommand("cast.findHelper", ["sh", "-c", "command -v cast-helper || true"], stdout => {
             const onPath = stdout.trim();
             if (onPath) {
-                root.helperPath = onPath;
-                root.helperResolved = true;
-                root.ensureRunningIfWanted();
+                root.useHelper(onPath);
                 return;
             }
-            Proc.runCommand("cast.findBundled", ["test", "-x", root.bundledHelper], (out, code) => {
-                root.helperPath = code === 0 ? root.bundledHelper : "";
-                root.helperResolved = true;
-                root.ensureRunningIfWanted();
-            });
+            Proc.runCommand("cast.findBundled", ["test", "-x", root.bundledHelper], (out, code) => root.useHelper(code === 0 ? root.bundledHelper : ""));
         });
+    }
+
+    function useHelper(path) {
+        helperPath = path;
+        helperResolved = true;
+        ensureRunningIfWanted();
+    }
+
+    // A running helper finishes and the next one starts from the new path.
+    onCustomHelperChanged: {
+        if (helper.running)
+            helper.stdinEnabled = false;
+        findHelper();
     }
 
     function ensureRunningIfWanted() {
@@ -1258,12 +1311,14 @@ PluginComponent {
 
         onExited: (exitCode, exitStatus) => {
             console.info("cast: helper exited with", exitCode);
-            const wasCasting = root.casting || root.starting;
+            const wasWanted = root.wanted;
             root.session = null;
             root.starting = false;
             root.devices = [];
             root._queue = [];
-            if (exitCode !== 0 && wasCasting)
+            if (!root.wanted)
+                root.thumbs = {};
+            if (exitCode !== 0 && wasWanted)
                 root.lastError = {
                     "code": "helperCrashed"
                 };
@@ -1474,7 +1529,10 @@ PluginComponent {
                 title: I18n.trFor("cast", "Pair with %1").arg(pairWin.service.sessionDevice?.name ?? "")
                 subtitle: pairWin.password ? I18n.trFor("cast", "Enter the AirPlay password") : I18n.trFor("cast", "Enter the code shown on the screen")
                 titleAlignment: Text.AlignLeft
-                onCloseRequested: pairWin.close()
+                onCloseRequested: {
+                    pairWin.answered = true;
+                    pairWin.service.stopCast();
+                }
             }
 
             DTextField {
@@ -1702,10 +1760,11 @@ PluginComponent {
                     dropdownWidth: CcMetrics.rowDropdownWidth
                     alignPopupRight: true
                     emptyText: I18n.trFor("cast", "No cast devices")
-                    options: win.service.mediaDevices.map(d => d.name)
-                    currentValue: win.device?.name ?? ""
+                    readonly property var labels: win.service.deviceLabels(win.service.mediaDevices)
+                    options: labels
+                    currentValue: labels[win.service.mediaDevices.findIndex(d => d.id === win.device?.id)] ?? ""
                     onValueChanged: value => {
-                        const target = win.service.mediaDevices.find(d => d.name === value);
+                        const target = win.service.mediaDevices[labels.indexOf(value)];
                         if (!target)
                             return;
                         win.service.playerDeviceId = target.id;

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -262,7 +263,7 @@ func (s *server) addBytes(name string, data []byte, contentType string) string {
 	mod := time.Now()
 	s.routes[s.prefix+name] = func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", contentType)
-		http.ServeContent(w, r, name, mod, strings.NewReader(string(data)))
+		http.ServeContent(w, r, name, mod, bytes.NewReader(data))
 	}
 	return s.url(name)
 }

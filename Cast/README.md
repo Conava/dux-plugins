@@ -78,7 +78,8 @@ Enable it in Settings > Plugins and add it to a bar or the Control Center.
 
 ### 3. Install cast-helper
 
-The plugin looks for `cast-helper` on `PATH`, then in `~/.local/share/dms/cast/bin/`. Source:
+The plugin looks for `cast-helper` on `PATH`, then in `~/.local/share/dms/cast/bin/`. A helper
+installed somewhere else can be set in Settings > Helper path. Source:
 [`helpers/cast/`](../helpers/cast). Use one of these:
 
 Arch: install it from the AUR. This also installs the required packages from step 1.
@@ -87,20 +88,16 @@ Arch: install it from the AUR. This also installs the required packages from ste
 yay -S cast-helper
 ```
 
-Download the release build (x86_64 or aarch64, built by GitHub Actions from the tagged source):
+Download the release build (x86_64 or aarch64, built by GitHub Actions from the tagged source).
+It is only installed if it matches the release's checksums:
 
 ```bash
-dms dl https://github.com/Conava/dux-plugins/releases/download/cast-v0.0.2/cast-helper-$(uname -m) \
-  --timeout 300 -o ~/.local/share/dms/cast/bin/cast-helper \
-  && chmod +x ~/.local/share/dms/cast/bin/cast-helper
-```
-
-Optionally check it against the release's checksums:
-
-```bash
-cd ~/.local/share/dms/cast/bin
-dms dl https://github.com/Conava/dux-plugins/releases/download/cast-v0.0.2/SHA256SUMS \
-  | sed "s/-$(uname -m)\$//" | grep "cast-helper$" | sha256sum -c
+(mkdir -p ~/.local/share/dms/cast/bin && cd ~/.local/share/dms/cast/bin \
+  && dms dl https://github.com/Conava/dux-plugins/releases/download/cast-v0.0.3/cast-helper-$(uname -m) \
+    --timeout 300 -o cast-helper-$(uname -m) \
+  && dms dl https://github.com/Conava/dux-plugins/releases/download/cast-v0.0.3/SHA256SUMS \
+    | grep " cast-helper-$(uname -m)$" | sha256sum -c \
+  && mv cast-helper-$(uname -m) cast-helper && chmod +x cast-helper)
 ```
 
 Or build it from source (Go 1.25 or newer, no C compiler):
@@ -111,7 +108,8 @@ CGO_ENABLED=0 go build -o ~/.local/share/dms/cast/bin/cast-helper .
 ```
 
 The popout shows these commands (the AUR one on Arch). Click "Check again" there once the helper
-is in place.
+is in place. After a plugin update that needs a newer helper, the popout asks for the update with
+the same commands.
 
 ### 4. Install doubletake (AirPlay only)
 
@@ -131,6 +129,8 @@ dms dl https://github.com/omarroth/doubletake/releases/download/v0.5.0/doubletak
   --timeout 300 -o ~/.local/share/dms/cast/bin/doubletake \
   && chmod +x ~/.local/share/dms/cast/bin/doubletake
 ```
+
+Cast also finds doubletake on `PATH` or in `~/go/bin`.
 
 doubletake also runs `gst-launch-1.0` and `pactl`: install `gstreamer1.0-tools` and
 `pulseaudio-utils` on Debian / Ubuntu, `pulseaudio-utils` on Fedora, `gstreamer-utils` and
@@ -157,7 +157,8 @@ commands.
 ## Network and files
 
 Apart from the cast devices on the local network, Cast only contacts youtube.com, when a YouTube
-link is played. It writes to:
+link is played, and the server of a pasted direct link (or a link in a playlist file), to ask for
+its media type when the address doesn't show it. It writes to:
 
 | Path | Contents |
 |---|---|

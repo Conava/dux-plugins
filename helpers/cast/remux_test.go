@@ -72,3 +72,14 @@ func TestSRTToVTT(t *testing.T) {
 		t.Errorf("latin-1: %q", got)
 	}
 }
+
+func TestParseMKVRejectsBadSizes(t *testing.T) {
+	for _, file := range [][]byte{
+		{0x1A, 0x45, 0xDF, 0xA3, 0xFF},                         // unknown size
+		{0x1A, 0x45, 0xDF, 0xA3, 0x08, 0xFF, 0xFF, 0xFF, 0xFF}, // 4 GiB header
+	} {
+		if _, err := parseMKV(bufio.NewReader(bytes.NewReader(file))); err == nil {
+			t.Errorf("% x parsed", file)
+		}
+	}
+}

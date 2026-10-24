@@ -69,8 +69,8 @@ func parseMKV(r *bufio.Reader) (mkvInfo, error) {
 	if err != nil || id != ebmlHeader {
 		return info, errors.New("not an EBML file")
 	}
-	head := make([]byte, size)
-	if _, err := io.ReadFull(r, head); err != nil {
+	head, err := ebmlBody(r, size, 1<<20)
+	if err != nil {
 		return info, err
 	}
 	hr := bufio.NewReader(bytes.NewReader(head))
@@ -79,8 +79,10 @@ func parseMKV(r *bufio.Reader) (mkvInfo, error) {
 		if err != nil {
 			break
 		}
-		v := make([]byte, size)
-		io.ReadFull(hr, v)
+		v, err := ebmlBody(hr, size, int64(len(head)))
+		if err != nil {
+			break
+		}
 		if id == ebmlDocType {
 			info.docType = string(v)
 		}
@@ -100,8 +102,8 @@ func parseMKV(r *bufio.Reader) (mkvInfo, error) {
 			}
 			continue
 		}
-		body := make([]byte, size)
-		if _, err := io.ReadFull(r, body); err != nil {
+		body, err := ebmlBody(r, size, 16<<20)
+		if err != nil {
 			return info, err
 		}
 		info.tracks = parseTracks(body)
@@ -117,8 +119,10 @@ func parseTracks(body []byte) []mkvTrack {
 		if err != nil {
 			return tracks
 		}
-		entry := make([]byte, size)
-		io.ReadFull(r, entry)
+		entry, err := ebmlBody(r, size, int64(len(body)))
+		if err != nil {
+			return tracks
+		}
 		if id != mkvEntry {
 			continue
 		}
@@ -129,8 +133,10 @@ func parseTracks(body []byte) []mkvTrack {
 			if err != nil {
 				break
 			}
-			v := make([]byte, size)
-			io.ReadFull(er, v)
+			v, err := ebmlBody(er, size, int64(len(entry)))
+			if err != nil {
+				break
+			}
 			switch id {
 			case mkvType:
 				t.kind = int(uintBE(v))
@@ -146,6 +152,17 @@ func parseTracks(body []byte) []mkvTrack {
 		}
 		tracks = append(tracks, t)
 	}
+}
+
+// ebmlBody reads an element's data, refusing unknown or implausible sizes
+// before allocating for them.
+func ebmlBody(r io.Reader, size, max int64) ([]byte, error) {
+	if size < 0 || size > max {
+		return nil, errors.New("bad element size")
+	}
+	b := make([]byte, size)
+	_, err := io.ReadFull(r, b)
+	return b, err
 }
 
 // ebmlElement reads an element ID and its data size. An unknown size (all
@@ -281,15 +298,10 @@ func remuxMKV(ctx context.Context, file, audioMode string, audioTrack int) (stri
 	if err != nil {
 		return "", err
 	}
-	cache, err := os.UserCacheDir()
+	out, err := newCacheFile("remux.mp4")
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(cache, "dms", "cast")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	out := filepath.Join(dir, fmt.Sprintf("%d.mp4", os.Getpid()))
 	start := time.Now()
 	log.Printf("remuxing to %s: %s", out, desc)
 	if err := runGst(ctx, desc, map[string]map[string]string{
