@@ -32,8 +32,9 @@ PluginComponent {
     // How the helper names this plugin to other apps using it.
     readonly property string clientId: "dms"
     property bool helperOutdated: false
+    property string helperVersion: ""
     readonly property string customHelper: (pluginData.helperPath ?? "").trim().replace(/^~\//, Quickshell.env("HOME") + "/")
-    readonly property string installGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#3-install-cast-helper"
+    readonly property string installGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#1-install-cast-helper"
     // Arch gets the helper from the AUR, which also installs the packages it needs.
     property bool onArch: false
     property string aurHelper: "yay"
@@ -1061,7 +1062,7 @@ PluginComponent {
         case "unsupportedLink":
             return I18n.trFor("cast", "Only http and https links can be played");
         case "busy":
-            return I18n.trFor("cast", "Already casting");
+            return ownerName ? I18n.trFor("cast", "%1 is already casting").arg(ownerName) : I18n.trFor("cast", "Already casting");
         case "helperCrashed":
             return I18n.trFor("cast", "The cast helper stopped unexpectedly");
         case "avahi":
@@ -1179,6 +1180,7 @@ PluginComponent {
                 helper.stdinEnabled = false;
                 return;
             }
+            helperVersion = msg.version ?? "";
             missing = msg.missing ?? [];
             deps = msg.deps ?? [];
             distro = msg.distro ?? "arch";
@@ -1378,6 +1380,8 @@ PluginComponent {
         property string command: ""
         // A short label in front, such as which hardware the command is for.
         property string label: ""
+        // A web page instead of a command: it opens rather than being copied.
+        readonly property bool isLink: /^https?:\/\//.test(command)
 
         visible: command !== ""
         height: visible ? implicitHeight : 0
@@ -1406,11 +1410,16 @@ PluginComponent {
         DActionButton {
             id: copyButton
             anchors.verticalCenter: parent.verticalCenter
-            iconName: "content_copy"
+            iconName: commandRow.isLink ? "open_in_new" : "content_copy"
             iconSize: Theme.iconSizeSmall
-            tooltipText: I18n.trFor("cast", "Copy")
+            tooltipText: commandRow.isLink ? I18n.trFor("cast", "Open") : I18n.trFor("cast", "Copy")
             Accessible.name: tooltipText
-            onClicked: Quickshell.execDetached(["dms", "cl", "copy", commandRow.command])
+            onClicked: {
+                if (commandRow.isLink)
+                    Qt.openUrlExternally(commandRow.command);
+                else
+                    Quickshell.execDetached(["dms", "cl", "copy", commandRow.command]);
+            }
         }
     }
 

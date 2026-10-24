@@ -173,6 +173,8 @@ PluginSettings {
         property string command: ""
         // A short label in front, such as which hardware the command is for.
         property string label: ""
+        // A web page instead of a command: it opens rather than being copied.
+        readonly property bool isLink: /^https?:\/\//.test(command)
 
         visible: command !== ""
         height: visible ? implicitHeight : 0
@@ -201,11 +203,16 @@ PluginSettings {
         DActionButton {
             id: copyButton
             anchors.verticalCenter: parent.verticalCenter
-            iconName: "content_copy"
+            iconName: commandRow.isLink ? "open_in_new" : "content_copy"
             iconSize: Theme.iconSizeSmall
-            tooltipText: I18n.trFor("cast", "Copy")
+            tooltipText: commandRow.isLink ? I18n.trFor("cast", "Open") : I18n.trFor("cast", "Copy")
             Accessible.name: tooltipText
-            onClicked: Quickshell.execDetached(["dms", "cl", "copy", commandRow.command])
+            onClicked: {
+                if (commandRow.isLink)
+                    Qt.openUrlExternally(commandRow.command);
+                else
+                    Quickshell.execDetached(["dms", "cl", "copy", commandRow.command]);
+            }
         }
     }
 
@@ -540,6 +547,8 @@ PluginSettings {
                         return "";
                     if (root.service.helperPath && root.service.helperOutdated)
                         return I18n.trFor("cast", "Outdated, update it with one of these commands");
+                    if (root.service.helperPath && root.service.helperVersion)
+                        return root.service.helperPath + " · " + root.service.helperVersion;
                     return root.service.helperPath || I18n.trFor("cast", "Not installed");
                 }
 
