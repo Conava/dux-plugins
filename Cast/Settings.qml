@@ -514,7 +514,7 @@ PluginSettings {
                 canRun: !firewallRow.done && !!firewallRow.service?.canUseSudo
                 runText: I18n.trFor("cast", "Apply now")
                 run: () => firewallRow.service.runInTerminal(firewallRow.service.firewallCommand, () => firewallRow.service.checkFirewall())
-                command: firewallRow.service?.firewallCommand ?? ""
+                command: firewallRow.done ? "" : (firewallRow.service?.firewallCommand ?? "")
             }
 
             DButton {
