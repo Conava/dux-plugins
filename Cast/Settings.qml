@@ -301,6 +301,104 @@ PluginSettings {
         }
     }
 
+    // A port is only saved through its button, once it's checked.
+    component PortField: SettingsTextFieldRow {
+        id: portField
+
+        property var service: null
+        property string proto: ""
+        property string saved: ""
+        property string edited: saved
+        property string problem: ""
+
+        signal portSaved(string port)
+
+        function savePort() {
+            if (edited === saved)
+                return;
+            service.checkPort(proto, edited, found => {
+                portField.problem = found;
+                if (found)
+                    return;
+                portField.service.portSaved(portField.proto, portField.saved, portField.edited);
+                portField.portSaved(portField.edited);
+            });
+        }
+
+        iconName: "lan"
+        value: saved
+        isError: problem !== ""
+        supportingText: problem
+        validator: RegularExpressionValidator {
+            regularExpression: /^[\d-]*$/
+        }
+        onSavedChanged: edited = saved
+        onValueEdited: value => {
+            edited = value;
+            problem = "";
+        }
+        onAccepted: savePort()
+
+        actions: DButton {
+            visible: portField.edited !== portField.saved
+            buttonHeight: Theme.buttonHeightXS
+            iconName: "save"
+            text: I18n.trFor("cast", "Save")
+            onClicked: portField.savePort()
+        }
+    }
+
+    // After a port changed: opens the new one and removes the old rule, where the firewall allows that.
+    component PortOffer: SettingsRow {
+        id: portOffer
+
+        property var service: null
+        property string proto: ""
+        property string range: ""
+        readonly property string previous: service?.previousPorts[proto] ?? ""
+        readonly property bool canOffer: !!service?.canChangeRules && previous !== ""
+        readonly property bool needsOpen: canOffer && service.neededPorts.some(p => p.proto === proto) && !service.portOpen(proto, range)
+        readonly property bool canRemove: canOffer && !!service.portRule(proto, previous)
+
+        visible: needsOpen || canRemove
+        title: needsOpen ? I18n.trFor("cast", "Port %1 is not open").arg(range) : I18n.trFor("cast", "Port %1 is no longer used").arg(previous)
+
+        body: Column {
+            width: parent.width
+            spacing: Theme.spacingS
+
+            StyledText {
+                width: parent.width
+                text: portOffer.service?.firewallDisclaimer ?? ""
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.error
+            }
+
+            Row {
+                spacing: Theme.spacingS
+
+                DButton {
+                    visible: portOffer.needsOpen
+                    buttonHeight: Theme.buttonHeightXS
+                    iconName: "lock_open"
+                    text: I18n.trFor("cast", "Open port %1").arg(portOffer.range)
+                    onClicked: portOffer.service.openPort(portOffer.proto, portOffer.range)
+                }
+
+                DButton {
+                    visible: portOffer.canRemove
+                    buttonHeight: Theme.buttonHeightXS
+                    iconName: "delete"
+                    text: I18n.trFor("cast", "Remove the rule for port %1").arg(portOffer.previous)
+                    backgroundColor: Theme.secondaryContainer
+                    textColor: Theme.onSecondaryContainer
+                    onClicked: portOffer.service.removePortRule(portOffer.proto, portOffer.previous)
+                }
+            }
+        }
+    }
+
     // Installing or updating the helper, or where to read how when the plugin can't do it.
     component HelperActions: Column {
         id: helperActions
@@ -790,18 +888,18 @@ PluginSettings {
                 onToggled: checked => root.save("convertVideos", checked)
             }
 
-            SettingsTextFieldRow {
-                iconName: "lan"
+            PortField {
+                service: root.service
+                proto: "tcp"
+                saved: root.port
                 text: I18n.trFor("cast", "Port")
-                value: root.port
-                validator: IntValidator {
-                    bottom: 1024
-                    top: 65535
-                }
-                onEditingFinished: value => {
-                    if (value && value !== root.port)
-                        root.save("mediaPort", value);
-                }
+                onPortSaved: port => root.save("mediaPort", port)
+            }
+
+            PortOffer {
+                service: root.service
+                proto: "tcp"
+                range: root.port
             }
         }
 
@@ -810,17 +908,18 @@ PluginSettings {
         }
 
         SettingsGroup {
-            SettingsTextFieldRow {
-                iconName: "lan"
+            PortField {
+                service: root.service
+                proto: "udp"
+                saved: root.airplayPorts
                 text: I18n.trFor("cast", "UDP ports")
-                value: root.airplayPorts
-                validator: RegularExpressionValidator {
-                    regularExpression: /^\d{4,5}(-\d{4,5})?$/
-                }
-                onEditingFinished: value => {
-                    if (value && value !== root.airplayPorts)
-                        root.save("airplayPorts", value);
-                }
+                onPortSaved: port => root.save("airplayPorts", port)
+            }
+
+            PortOffer {
+                service: root.service
+                proto: "udp"
+                range: root.airplayPorts
             }
         }
 

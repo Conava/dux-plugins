@@ -146,8 +146,13 @@ PluginComponent {
     }
     // FedoraWorkstation has no mdns service but opens 5353 with its high ports.
     readonly property bool firewallOpen: !!firewallRules && (firewallMdns || portOpen("udp", "5353")) && neededPorts.every(p => portOpen(p.proto, p.range))
-    // The confirmation counts for these ports on this firewall only.
-    readonly property string firewallKey: firewall + " " + neededPorts.map(p => p.label).join(" ")
+    // The confirmation counts for this firewall and these kinds of ports only;
+    // saving another port keeps it, since that's a deliberate choice.
+    readonly property string firewallKey: firewall + " " + neededPorts.map(p => p.proto).join(" ")
+    // Only where the rules can be read and changed; anyone else manages them by hand.
+    readonly property bool canChangeRules: !!firewallRules && canUseSudo && (firewall === "firewalld" || firewall === "ufw")
+    // By protocol, what the ports were before being changed here, to offer removing their rules.
+    property var previousPorts: ({})
     // With no firewall there's nothing to open, the settings only name the ports.
     readonly property bool firewallReady: firewall === "none" || (firewall !== "" && (firewallOpen || (pluginData.firewallConfirmed ?? "") === firewallKey))
     readonly property var firewallSteps: {
@@ -155,10 +160,10 @@ PluginComponent {
         case "firewalld":
             {
                 const add = ["sudo", "firewall-cmd", "--permanent"].concat(firewallZone ? ["--zone=" + firewallZone] : []);
-                return [add.concat(["--add-service=mdns"]), add.concat(neededPorts.map(p => "--add-port=" + p.range + "/" + p.proto)), ["sudo", "firewall-cmd", "--reload"]];
+                return [add.concat(["--add-service=mdns"])].concat(firewallAddSteps(neededPorts));
             }
         case "ufw":
-            return neededPorts.map(p => ["sudo", "ufw", "allow", "from", lanSubnet, "to", "any", "port", p.range.replace("-", ":"), "proto", p.proto]);
+            return firewallAddSteps(neededPorts);
         }
         return [];
     }
@@ -798,6 +803,71 @@ fi`
         });
     }
 
+    // Why a port or range can't be used, or empty.
+    function portProblem(proto, text) {
+        const ports = proto === "udp" ? /^(\d+)(?:-(\d+))?$/.exec(text) : /^(\d+)$/.exec(text);
+        const low = Number(ports?.[1]);
+        const high = Number(ports?.[2] ?? low);
+        if (!ports || low < 1024 || high > 65535 || low > high)
+            return proto === "udp" ? I18n.trFor("cast", "Enter a port or range between 1024 and 65535") : I18n.trFor("cast", "Enter a port between 1024 and 65535");
+        return "";
+    }
+
+    // Reports a problem with the port, or an empty string, after checking nothing else listens on it.
+    function checkPort(proto, text, done) {
+        const problem = portProblem(proto, text);
+        if (problem) {
+            done(problem);
+            return;
+        }
+        const wanted = portRules(proto, text)[0];
+        Proc.runCommand("", ["ss", proto === "udp" ? "-Hlun" : "-Hltn"], out => {
+            const taken = out.trim().split("\n").map(l => Number(/:(\d+)$/.exec(l.trim().split(/\s+/)[3] ?? "")?.[1])).some(p => p >= wanted.low && p <= wanted.high);
+            done(taken ? I18n.trFor("cast", "This port is already in use") : "");
+        });
+    }
+
+    function portSaved(proto, oldRange, newRange) {
+        const next = Object.assign({}, previousPorts);
+        // Going through several ports, the rule to remove is still the first one.
+        if (!next[proto] || portRule(proto, oldRange))
+            next[proto] = oldRange;
+        if (next[proto] === newRange)
+            delete next[proto];
+        previousPorts = next;
+        confirmFirewall();
+    }
+
+    // A rule for exactly these ports, which can be removed again.
+    function portRule(proto, range) {
+        const wanted = portRules(proto, range)[0];
+        return (firewallRules ?? []).find(r => r.proto === proto && r.low === wanted.low && r.high === wanted.high && (firewall === "firewalld" || r.source)) ?? null;
+    }
+
+    function firewallAddSteps(ports) {
+        if (firewall === "ufw")
+            return ports.map(p => ["sudo", "ufw", "allow", "from", lanSubnet, "to", "any", "port", p.range.replace("-", ":"), "proto", p.proto]);
+        const add = ["sudo", "firewall-cmd", "--permanent"].concat(firewallZone ? ["--zone=" + firewallZone] : []);
+        return [add.concat(ports.map(p => "--add-port=" + p.range + "/" + p.proto)), ["sudo", "firewall-cmd", "--reload"]];
+    }
+
+    function openPort(proto, range) {
+        runInTerminal(commandText(firewallAddSteps([{
+                "proto": proto,
+                "range": range
+            }])), checkFirewall);
+    }
+
+    function removePortRule(proto, range) {
+        const rule = portRule(proto, range);
+        if (!rule)
+            return;
+        const ports = range.replace("-", ":");
+        const everywhere = ["0.0.0.0/0", "::/0"].includes(rule.source);
+        const steps = firewall === "ufw" ? [["sudo", "ufw", "delete", "allow"].concat(everywhere ? [ports + "/" + proto] : ["from", rule.source, "to", "any", "port", ports, "proto", proto])] : [["sudo", "firewall-cmd", "--permanent"].concat(firewallZone ? ["--zone=" + firewallZone] : [], ["--remove-port=" + range + "/" + proto]), ["sudo", "firewall-cmd", "--reload"]];
+        runInTerminal(commandText(steps), checkFirewall);
+    }
+
     function portOpen(proto, range) {
         const wanted = portRules(proto, range)[0];
         return (firewallRules ?? []).some(r => (r.proto === proto || r.proto === "any") && r.low <= wanted.low && r.high >= wanted.high);
@@ -816,7 +886,11 @@ fi`
                 mdns = words.includes("mdns");
             } else if (words[0] === "###") {
                 // ### tuple ### allow <proto> <port> <dst> <sport> <src> <direction>
-                rules = (rules ?? []).concat(portRules(words[4], words[5]));
+                // Only a plain rule can be named again to delete it.
+                const plain = !words[5].includes(",") && words[9] === "in";
+                rules = (rules ?? []).concat(portRules(words[4], words[5]).map(r => Object.assign(r, {
+                    "source": plain ? words[8] : ""
+                })));
             }
         }
         firewall = kind || "none";

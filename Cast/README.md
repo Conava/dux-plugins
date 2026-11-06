@@ -81,7 +81,8 @@ older helper keeps working as long as it speaks the protocol the plugin needs.
 ### 3. Open the firewall
 
 The Setup section detects firewalld and ufw and can open the ports for them. For any other firewall,
-open these ports yourself. The ports can be changed in Settings.
+open these ports yourself. The ports can be changed in Settings. Where the firewall rules can be
+read and changed, saving a new port offers to open it and to remove the rule for the old one.
 
 | Port | Used for |
 |---|---|
