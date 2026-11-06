@@ -141,16 +141,6 @@ PluginComponent {
             color: Theme.surfaceText
         }
 
-        StyledText {
-            anchors.verticalCenter: parent.verticalCenter
-            width: commandRow.width - copyButton.width - commandRow.spacing - (commandLabel.visible ? commandLabel.width + commandRow.spacing : 0)
-            text: commandRow.command
-            isMonospace: true
-            wrapMode: Text.Wrap
-            font.pixelSize: Theme.fontSizeSmall
-            color: Theme.surfaceText
-        }
-
         DActionButton {
             id: copyButton
             anchors.verticalCenter: parent.verticalCenter
@@ -591,10 +581,9 @@ PluginComponent {
         signal openSettings
 
         readonly property string demandKey: "panel" + Math.random()
-        readonly property bool helperMissing: service && service.helperResolved && !service.helperPath
-        readonly property bool helperOutdated: !!service?.helperOutdated
-        readonly property bool needsSetup: helperMissing || helperOutdated
         readonly property var session: service?.session ?? null
+        // A cast from another app still shows.
+        readonly property bool needsSetup: !!service?.setupNeeded && !session
         readonly property bool isMedia: service?.isMedia ?? false
         readonly property bool connecting: !!session && (session.phase === "starting" || session.phase === "authorizing" || session.phase === "pairing")
         readonly property bool pairing: session?.phase === "pairing"
@@ -719,95 +708,73 @@ PluginComponent {
             width: parent.width
             visible: panel.needsSetup
             iconName: "build"
-            title: panel.helperOutdated ? I18n.trFor("cast", "Cast helper is outdated") : I18n.trFor("cast", "Cast helper not installed")
-            subtitle: panel.service?.onArch ? I18n.trFor("cast", "Install it from the AUR, which also installs the packages it needs") : I18n.trFor("cast", "Download it with this command, or build it from source")
+            title: I18n.trFor("cast", "Finish setting up Cast")
+            subtitle: I18n.trFor("cast", "Complete the setup in the settings")
 
-            CommandRow {
-                width: parent.width
-                command: panel.service?.onArch ? panel.service.aurHelper + " -S cast-helper" : ""
-            }
-
-            CommandRow {
-                width: parent.width
-                label: panel.service?.onArch ? I18n.trFor("cast", "Or download") : ""
-                command: panel.service?.helperDownloadCommand ?? ""
-            }
-
-            Row {
+            DButton {
                 anchors.horizontalCenter: parent.horizontalCenter
-                spacing: Theme.spacingS
-
-                DButton {
-                    buttonHeight: Theme.buttonHeightXS
-                    iconName: "open_in_new"
-                    text: I18n.trFor("cast", "Installation guide")
-                    backgroundColor: Theme.secondaryContainer
-                    textColor: Theme.onSecondaryContainer
-                    onClicked: Qt.openUrlExternally(panel.service.installGuide)
-                }
-
-                DButton {
-                    buttonHeight: Theme.buttonHeightXS
-                    iconName: "refresh"
-                    text: I18n.trFor("cast", "Check again")
-                    onClicked: panel.service.findHelper()
-                }
+                buttonHeight: Theme.buttonHeightXS
+                iconName: "settings"
+                text: I18n.trFor("cast", "Open settings")
+                onClicked: panel.openSettings()
             }
         }
 
         CcGroup {
-            visible: !panel.needsSetup && (panel.service?.missing.length ?? 0) > 0
+            visible: panel.ready && !!panel.service?.helperUpdateAvailable
 
-            CcEmptyState {
-                iconName: "build"
-                title: I18n.trFor("cast", "A few things are missing")
-            }
-        }
+            CcListRow {
+                iconName: "upgrade"
+                iconColor: Theme.warning
+                title: I18n.trFor("cast", "New Cast helper available")
+                subtitle: I18n.trFor("cast", "Updating is highly recommended. Version %1 remains compatible, but some features may be unavailable").arg(panel.service?.helperVersion ?? "")
 
-        CcSectionLabel {
-            visible: missingGroup.visible
-            text: I18n.trFor("cast", "Missing")
-        }
+                body: Column {
+                    width: parent.width
+                    spacing: Theme.spacingS
 
-        CcGroup {
-            id: missingGroup
-            visible: !panel.needsSetup && (panel.service?.missing.length ?? 0) > 0
-
-            Repeater {
-                model: panel.service?.missing ?? []
-
-                CcListRow {
-                    id: missingRow
-                    required property var modelData
-                    readonly property var dep: panel.service.deps.find(d => d.id === modelData) ?? null
-
-                    iconName: "error"
-                    iconColor: Theme.error
-                    title: panel.service.packagesFor([modelData])[0] ?? modelData
-                    subtitle: dep ? I18n.trFor("cast", "Required for: %1").arg(panel.service.featuresText(dep.features)) : ""
-
-                    body: PackageHints {
+                    StyledText {
                         width: parent.width
-                        service: panel.service
-                        ids: [missingRow.modelData]
+                        visible: text !== ""
+                        text: panel.service?.helperDisclaimer ?? ""
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.warning
+                    }
+
+                    DButton {
+                        buttonHeight: Theme.buttonHeightXS
+                        enabled: !panel.service?.helperUpdating
+                        iconName: panel.service?.helperMethod ? "download" : "settings"
+                        text: {
+                            if (panel.service?.helperUpdating)
+                                return I18n.trFor("cast", "Updating...");
+                            return panel.service?.helperMethod ? I18n.trFor("cast", "Update now") : I18n.trFor("cast", "Open settings");
+                        }
+                        onClicked: {
+                            if (panel.service.helperMethod)
+                                panel.service.installHelper();
+                            else
+                                panel.openSettings();
+                        }
                     }
                 }
             }
+        }
+
+        CcGroup {
+            visible: panel.ready && !!panel.service?.mirroringMissing
 
             CcListRow {
-                body: CommandRow {
-                    width: parent.width
-                    command: panel.service?.installCommand(panel.service.missing) ?? ""
-                }
-            }
+                iconName: "build"
+                iconColor: Theme.warning
+                title: panel.service?.missingText("mirroring") ?? ""
 
-            CcListRow {
-                DButton {
-                    anchors.verticalCenter: parent.verticalCenter
+                body: DButton {
                     buttonHeight: Theme.buttonHeightXS
-                    iconName: "refresh"
-                    text: I18n.trFor("cast", "Check again")
-                    onClicked: panel.service.recheck()
+                    iconName: "settings"
+                    text: I18n.trFor("cast", "Open settings")
+                    onClicked: panel.openSettings()
                 }
             }
         }
@@ -928,6 +895,7 @@ PluginComponent {
 
                     CommandRow {
                         width: parent.width
+                        label: I18n.trFor("cast", "Install command")
                         command: soundRow.warning?.missing?.length ? panel.service.installCommand(soundRow.warning.missing) : ""
                     }
 
@@ -1168,6 +1136,7 @@ PluginComponent {
 
             CommandRow {
                 width: parent.width
+                label: I18n.trFor("cast", "Install command")
                 command: panel.service?.lastError?.code === "missingDependency" ? panel.service.installCommand(panel.service.lastError.missing) : ""
             }
 
@@ -1381,6 +1350,19 @@ PluginComponent {
         CcGroup {
             id: hintGroup
             visible: panel.ready && panel.devices.length === 0 && !panel.session && panel.searchedLong
+
+            Repeater {
+                model: panel.service?.noCast ?? []
+
+                CcListRow {
+                    required property string modelData
+
+                    iconName: "tv"
+                    iconColor: Theme.warning
+                    title: I18n.trFor("cast", "Cast is not available on %1").arg(modelData)
+                    subtitle: I18n.trFor("cast", "Check the TV's network connection and that Chromecast built-in or Google Cast Receiver is enabled in its system apps")
+                }
+            }
 
             CcListRow {
                 iconName: "wifi"

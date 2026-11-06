@@ -39,19 +39,69 @@ PluginComponent {
     // Arch gets the helper from the AUR, which also installs the packages it needs.
     property bool onArch: false
     property string aurHelper: "yay"
+    property bool aurFound: false
     // The helper release the download command installs; it has to speak helperProtocol.
-    readonly property string helperRelease: "v0.1.0"
+    readonly property string helperRelease: "v0.2.0"
     // Downloads that release and installs it only if it matches its SHA256SUMS.
     readonly property string helperDownloadCommand: {
         const base = "https://github.com/Conava/dux-cast/releases/download/" + helperRelease;
-        const dir = bundledHelper.substring(0, bundledHelper.lastIndexOf("/"));
+        const dir = shellQuote(bundledHelper.substring(0, bundledHelper.lastIndexOf("/")));
         const file = helperName + "-$(uname -m)";
         return "(mkdir -p " + dir + " && cd " + dir + " && dms dl " + base + "/" + file + " --timeout 300 -o " + file
-            + " && dms dl " + base + "/SHA256SUMS | grep \" " + file + "$\" | sha256sum -c && mv " + file + " " + helperName
-            + " && chmod +x " + helperName + ")";
+            + " && dms dl " + base + "/SHA256SUMS | grep \" " + file + "$\" | sha256sum -c && chmod +x " + file
+            + " && ./" + file + " version && mv " + file + " " + helperName + ")";
+    }
+    readonly property string dependenciesGuide: "https://github.com/Conava/dux-cast#1-dependencies"
+    readonly property string firewallGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#3-open-the-firewall"
+
+    // How a terminal is told what to run, empty without one. Elevated commands need it.
+    property var terminalPrefix: []
+    // sudo, the package managers found, the CPU, and immutable where the system can't take packages.
+    property var systemTools: []
+    readonly property bool canUseSudo: terminalPrefix.length > 0 && systemTools.includes("sudo")
+    readonly property bool canInstall: {
+        const manager = {
+            "arch": "pacman",
+            "debian": "apt",
+            "fedora": "dnf",
+            "opensuse": "zypper"
+        }[distro];
+        return canUseSudo && systemTools.includes(manager) && !systemTools.includes("immutable");
     }
 
+    // The plugin is written for helperRelease, but works down to helperProtocol.
+    readonly property bool helperUpdateAvailable: !!helperPath && !helperOutdated && !!helperVersion && olderVersion(helperVersion, helperRelease)
+    // download, aur, or empty where the plugin can't tell how this helper was installed.
+    readonly property string helperMethod: {
+        const aur = onArch && aurFound && terminalPrefix.length > 0;
+        // The architectures the release workflow builds.
+        const download = systemTools.includes("glibc") && ["x86_64", "aarch64"].some(cpu => systemTools.includes(cpu)) ? "download" : "";
+        if (!helperPath)
+            return aur ? "aur" : download;
+        if (helperPath === bundledHelper)
+            return download;
+        return aur && helperPath.startsWith("/usr/") ? "aur" : "";
+    }
+    readonly property string helperCommand: helperMethod === "aur" ? aurHelper + " -S cast-helper" : helperMethod === "download" ? helperDownloadCommand : ""
+    // Shown right above every button that installs or changes something.
+    readonly property string helperDisclaimer: {
+        if (helperMethod === "download")
+            return I18n.trFor("cast", "Downloads cast-helper %1 from github.com/Conava/dux-cast and runs it on this computer. It is not part of Dux Shell. The download is verified against the release checksums.").arg(helperRelease);
+        if (helperMethod === "aur")
+            return I18n.trFor("cast", "Installs cast-helper from the AUR in a terminal. It is not part of Dux Shell.");
+        return "";
+    }
+    readonly property string installDisclaimer: I18n.trFor("cast", "Installs with your package manager in a terminal. Your password is required.")
+    readonly property string firewallDisclaimer: I18n.trFor("cast", "Changes your firewall rules in a terminal. Your password is required.")
+    property bool helperUpdating: false
+    property bool _swappingHelper: false
+
     property var devices: []
+    // TVs on the network with Cast turned off or missing, so not in devices.
+    property var noCast: []
+    // The last events with their time, for bug reports; outlives the helper.
+    property var history: []
+    readonly property bool detailedLogging: pluginData.detailedLogging ?? false
     property var session: null
     property var missing: []
     // The check report: every package, what it's for, and whether it's there.
@@ -68,6 +118,58 @@ PluginComponent {
     property string pendingDevice: ""
     // The TV loads local files from this port, so a firewall rule can allow it.
     readonly property int mediaPort: parseInt(pluginData.mediaPort ?? "47830") || 47830
+    readonly property string airplayPorts: pluginData.airplayPorts ?? "47840-47849"
+
+    // firewalld, ufw, other or none; empty until the check ran.
+    property string firewall: ""
+    property string firewallZone: ""
+    // The open ports as {proto, low, high}, or null where the rules can't be read.
+    property var firewallRules: null
+    property bool firewallMdns: true
+    // The local network of the default route, for the ufw command.
+    property string lanSubnet: "192.168.0.0/16"
+    readonly property var neededPorts: {
+        const ports = [{
+                "proto": "tcp",
+                "range": String(mediaPort),
+                "label": "TCP " + mediaPort,
+                "use": I18n.trFor("cast", "Media playback")
+            }];
+        if (deps.some(d => d.id === "doubletake" && d.present))
+            ports.push({
+                "proto": "udp",
+                "range": airplayPorts,
+                "label": "UDP " + airplayPorts,
+                "use": I18n.trFor("cast", "AirPlay mirroring")
+            });
+        return ports;
+    }
+    // FedoraWorkstation has no mdns service but opens 5353 with its high ports.
+    readonly property bool firewallOpen: !!firewallRules && (firewallMdns || portOpen("udp", "5353")) && neededPorts.every(p => portOpen(p.proto, p.range))
+    // The confirmation counts for these ports on this firewall only.
+    readonly property string firewallKey: firewall + " " + neededPorts.map(p => p.label).join(" ")
+    // With no firewall there's nothing to open, the settings only name the ports.
+    readonly property bool firewallReady: firewall === "none" || (firewall !== "" && (firewallOpen || (pluginData.firewallConfirmed ?? "") === firewallKey))
+    readonly property var firewallSteps: {
+        switch (firewall) {
+        case "firewalld":
+            {
+                const add = ["sudo", "firewall-cmd", "--permanent"].concat(firewallZone ? ["--zone=" + firewallZone] : []);
+                return [add.concat(["--add-service=mdns"]), add.concat(neededPorts.map(p => "--add-port=" + p.range + "/" + p.proto)), ["sudo", "firewall-cmd", "--reload"]];
+            }
+        case "ufw":
+            return neededPorts.map(p => ["sudo", "ufw", "allow", "from", lanSubnet, "to", "any", "port", p.range.replace("-", ":"), "proto", p.proto]);
+        }
+        return [];
+    }
+    readonly property string firewallCommand: commandText(firewallSteps)
+    readonly property bool helperProblem: helperResolved && (!helperPath || helperOutdated)
+    // The popout only points to the settings while this is set.
+    readonly property bool setupNeeded: helperProblem || blockingMissing || (checked && firewall !== "" && !firewallReady)
+    // Files and links work without what only mirroring needs, such as a VA-API
+    // encoder a system may never get, so those packages don't lock the popout.
+    readonly property bool blockingMissing: deps.some(d => d.required && !d.present && (d.features ?? []).some(f => f === "discovery" || f === "files"))
+    readonly property bool mirroringMissing: !blockingMissing && missing.length > 0
     readonly property bool casting: session !== null
     // The helper is on MPRIS while it casts, also for another app connected to
     // it; the plugin attaches then to show and control that cast.
@@ -395,7 +497,7 @@ PluginComponent {
             "delay": pluginData.latency ?? 200,
             "restoreToken": pluginService?.loadPluginState(pluginId, "restoreToken", "") ?? "",
             "protocol": mirrorProtocol(device),
-            "airplayPorts": pluginData.airplayPorts ?? "47840-47849"
+            "airplayPorts": airplayPorts
         });
     }
 
@@ -629,10 +731,220 @@ PluginComponent {
         setSetting("favoriteName", unset ? "" : device.name);
     }
 
+    function note(text) {
+        history = history.slice(-99).concat([new Date().toTimeString().slice(0, 8) + " " + text]);
+    }
+
+    onDetailedLoggingChanged: {
+        if (helper.running)
+            send({
+                "cmd": "debug",
+                "on": detailedLogging
+            });
+    }
+
     function recheck() {
         send({
             "cmd": "check"
         });
+        checkFirewall();
+    }
+
+    // Static, so nothing from outside ends up in the shell; $1 is the network interface.
+    readonly property string firewallScript: `
+if firewall-cmd --state >/dev/null 2>&1; then
+    zone=$(firewall-cmd --get-zone-of-interface="$1" 2>/dev/null) || zone=$(firewall-cmd --get-default-zone)
+    echo "firewalld $zone"
+    # Reading the ports can ask for a password; pkcheck only tells if it would.
+    if pkcheck --action-id org.fedoraproject.FirewallD1.config.info --process $$ >/dev/null 2>&1; then
+        echo "ports $(firewall-cmd --zone="$zone" --list-ports)"
+        echo "services $(firewall-cmd --zone="$zone" --list-services)"
+    fi
+elif grep -qs '^ENABLED=yes' /etc/ufw/ufw.conf; then
+    echo ufw
+    if [ -r /etc/ufw/user.rules ]; then
+        echo ports
+        grep '^### tuple ### allow' /etc/ufw/user.rules
+    fi
+elif systemctl is-active -q nftables iptables; then
+    echo other
+else
+    echo none
+fi`
+
+    function checkFirewall() {
+        Proc.runCommand("cast.route", ["ip", "-4", "-j", "route", "show"], out => {
+            let dev = "";
+            try {
+                const routes = JSON.parse(out);
+                dev = routes.find(r => r.dst === "default")?.dev ?? "";
+                const lan = routes.find(r => r.dev === dev && r.scope === "link" && r.dst.includes("/"));
+                if (lan)
+                    root.lanSubnet = lan.dst;
+            } catch (e) {}
+            Proc.runCommand("cast.firewall", ["sh", "-c", root.firewallScript, "sh", dev], report => root.readFirewall(report));
+        });
+    }
+
+    // "80,1000:2000" as ufw writes ports, or "1025-65535" as firewalld does.
+    function portRules(proto, ports) {
+        return ports.split(",").map(p => {
+            const [low, high = low] = p.split(/[-:]/).map(Number);
+            return {
+                "proto": proto,
+                "low": low,
+                "high": high
+            };
+        });
+    }
+
+    function portOpen(proto, range) {
+        const wanted = portRules(proto, range)[0];
+        return (firewallRules ?? []).some(r => (r.proto === proto || r.proto === "any") && r.low <= wanted.low && r.high >= wanted.high);
+    }
+
+    function readFirewall(report) {
+        const [head, ...lines] = report.trim().split("\n");
+        const [kind, zone] = head.split(" ");
+        let rules = null;
+        let mdns = kind !== "firewalld";
+        for (const line of lines) {
+            const words = line.trim().split(/\s+/);
+            if (words[0] === "ports") {
+                rules = (rules ?? []).concat(...words.slice(1).map(w => portRules(w.split("/")[1], w.split("/")[0])));
+            } else if (words[0] === "services") {
+                mdns = words.includes("mdns");
+            } else if (words[0] === "###") {
+                // ### tuple ### allow <proto> <port> <dst> <sport> <src> <direction>
+                rules = (rules ?? []).concat(portRules(words[4], words[5]));
+            }
+        }
+        firewall = kind || "none";
+        firewallZone = zone ?? "";
+        firewallRules = rules;
+        firewallMdns = mdns;
+    }
+
+    // Writes a bug report to $1, starting with the plugin's part in $2. Static like firewallScript.
+    readonly property string reportScript: `
+cache="\${XDG_CACHE_HOME:-$HOME/.cache}/dms/cast"
+mkdir -p "\${1%/*}"
+{
+    printf '%s\n' "$2"
+    . /etc/os-release
+    echo "## System"
+    echo "OS: $PRETTY_NAME"
+    echo "Kernel: $(uname -r)"
+    echo "Session: $XDG_CURRENT_DESKTOP $XDG_SESSION_TYPE"
+    echo "Shell: $(dms version | head -n 1)"
+    echo "Load: $(cut -d' ' -f1-3 /proc/loadavg)"
+    grep -E '^Mem(Total|Available)' /proc/meminfo
+    echo "PipeWire: $(pipewire --version | tail -n 1)"
+    echo "Portal: $(systemctl --user is-active xdg-desktop-portal)"
+    ls /usr/share/xdg-desktop-portal/portals
+    echo "avahi-daemon: $(systemctl is-active avahi-daemon)"
+    echo
+    echo "## GPU"
+    lspci -k | grep -iA3 -E 'vga|3d controller|display controller' | cut -c1-120
+    gst-inspect-1.0 va | grep -i enc
+    journalctl -k -p err --since -1d --no-pager | grep -iE 'gpu|drm|i915|xe |nouveau|nvidia' | tail -n 20
+    echo
+    echo "## Network"
+    ip -br -4 addr
+    ip -4 route show default
+    echo "Wi-Fi: $(nmcli -t -f IN-USE,CHAN,RATE,SIGNAL dev wifi | grep '^\*')"
+    echo
+    echo "## mDNS"
+    for type in _googlecast._tcp _airplay._tcp _androidtvremote2._tcp; do
+        echo "$type:"
+        timeout 3 avahi-browse -pt "$type"
+    done
+    echo
+    echo "## Crashes"
+    coredumpctl --no-pager --since=-1d list cast-helper | tail -n 5
+    coredumpctl --no-pager --since=-1d list quickshell | tail -n 5
+    echo
+    echo "## Helper log"
+    tail -n 500 "$cache/serve.log"
+    echo
+    echo "## Previous helper log"
+    tail -n 500 "$cache/serve.old.log"
+    echo
+    echo "## Shell log"
+    journalctl --user -u dms --since -2h --no-pager | grep -i cast | tail -n 300
+} 2>&1 | cut -c1-400 | sed "s#$HOME#~#g" > "$1"`
+
+    readonly property string reportFile: Paths.strip(Paths.data) + "/cast/report.txt"
+
+    // Where the widget sits on each bar, for problems only some layouts have.
+    function widgetPlacement() {
+        const isCast = e => /^cast(:|$)/.test(typeof e === "string" ? e : e?.id ?? "");
+        const bars = (SettingsData.barConfigs ?? []).map(bar => {
+            const side = ["left", "center", "right"].find(s => (bar[s + "Widgets"] ?? []).some(isCast));
+            const entry = side ? bar[side + "Widgets"].find(isCast) : null;
+            return "Bar " + (bar.name ?? bar.id) + ": position " + bar.position + ", enabled " + bar.enabled + ", " + (side ? side + " " + JSON.stringify(entry) : "no Cast");
+        });
+        return bars.concat(["Control Center: " + (SettingsData.controlCenterWidgets ?? []).some(isCast)]);
+    }
+
+    // What the plugin knows; the rest comes from reportScript.
+    function reportState() {
+        const statusOf = d => d.package + (d.required ? " (required)" : "");
+        return ["# Cast report", "",
+            "Plugin: " + (pluginService?.availablePlugins?.[pluginId]?.version ?? "?"),
+            "Load error: " + JSON.stringify(pluginService?.pluginLoadErrors?.[pluginId] ?? null),
+            "Helper: " + (helperPath || "not found") + " " + helperVersion + (helperOutdated ? " (outdated)" : ""),
+            "Helper running: " + helper.running + ", wanted by: " + (Object.keys(demand).join(", ") || "nothing"),
+            "Detailed logging: " + detailedLogging,
+            "Distro family: " + distro,
+            "Setup needed: " + setupNeeded,
+            "Missing packages: " + (deps.filter(d => !d.present).map(statusOf).join(", ") || "none"),
+            "Firewall: " + (firewall || "not checked") + (firewallZone ? " (zone " + firewallZone + ")" : ""),
+            "Firewall rules: " + (firewallRules ? (firewallOpen ? "readable, ports open" : "readable, ports not open") : "not readable"),
+            "Firewall confirmed by user: " + ((pluginData.firewallConfirmed ?? "") === firewallKey),
+            "Needed ports: " + neededPorts.map(p => p.label).join(", "),
+            "", "## Cast state",
+            "Devices: " + JSON.stringify(devices),
+            "TVs without Cast: " + (noCast.join("; ") || "none"),
+            "Session: " + JSON.stringify(session).slice(0, 4000),
+            "Last error: " + JSON.stringify(lastError),
+            "Sound warning: " + JSON.stringify(soundWarning),
+            "Settings: " + JSON.stringify(pluginData),
+            "", "## Recent events"].concat(history, ["", "## Appearance",
+            "Theme: " + Theme.currentTheme + (SessionData.isLightMode ? ", light" : ", dark"),
+            "Font scale: " + Theme.fontScale,
+            "Language: " + I18n.locale().name,
+            "Screens: " + Quickshell.screens.map(s => s.name + " " + s.width + "x" + s.height + " @" + s.devicePixelRatio).join(", ")],
+            widgetPlacement(), [""]).join("\n");
+    }
+
+    function buildReport(done) {
+        Proc.runCommand("", ["sh", "-c", reportScript, "sh", reportFile, reportState()], (out, code) => {
+            if (code === 0)
+                done();
+            else
+                ToastService.showError(I18n.trFor("cast", "Failed to create the report"));
+        }, 0, 30000);
+    }
+
+    function copyReport() {
+        buildReport(() => {
+            Proc.runCommand("", ["sh", "-c", 'dms cl copy < "$1"', "sh", reportFile], (out, code) => {
+                if (code === 0)
+                    ToastService.showInfo(I18n.trFor("cast", "Report copied"));
+                else
+                    ToastService.showError(I18n.trFor("cast", "Failed to create the report"));
+            });
+        });
+    }
+
+    function openReport() {
+        buildReport(() => Qt.openUrlExternally("file://" + reportFile));
+    }
+
+    // For firewalls that can't be read: the user says the ports are open.
+    function confirmFirewall() {
+        pluginService?.savePluginData(pluginId, "firewallConfirmed", firewallKey);
     }
 
     function requestThumbnail(path) {
@@ -972,34 +1284,136 @@ PluginComponent {
 
     // The install command for this distro family, or just the package names on
     // the rest (NixOS, Gentoo, Void, …), whose users know their package manager.
-    readonly property bool knownDistro: ["arch", "debian", "fedora", "opensuse"].includes(distro)
+    readonly property bool knownDistro: ["arch", "debian", "fedora", "opensuse"].includes(distro) && !systemTools.includes("immutable")
 
     function installCommand(ids) {
         const packages = packagesFor((ids ?? []).filter(id => !deps.find(d => d.id === id)?.manual));
         if (packages.length === 0)
             return "";
-        const list = packages.join(" ");
-        let command;
-        switch (distro) {
-        case "arch":
-            command = "sudo pacman -S --needed " + list;
-            break;
-        case "fedora":
-            command = "sudo dnf install " + list;
-            break;
-        case "debian":
-            command = "sudo apt install " + list;
-            break;
-        case "opensuse":
-            command = "sudo zypper install " + list;
-            break;
-        default:
+        const install = {
+            "arch": ["sudo", "pacman", "-S", "--needed"],
+            "fedora": ["sudo", "dnf", "install"],
+            "debian": ["sudo", "apt", "install"],
+            "opensuse": ["sudo", "zypper", "install"]
+        }[distro];
+        if (!install || !knownDistro)
             return packages.join(" ");
-        }
+        const steps = [install.concat(packages)];
         // avahi counts as missing until its daemon runs.
         if (ids.includes("avahi"))
-            command += " && sudo systemctl enable --now avahi-daemon";
-        return command;
+            steps.push(["sudo", "systemctl", "enable", "--now", "avahi-daemon"]);
+        return commandText(steps);
+    }
+
+    // Everything that ends up in a shell goes through here, so ports from the
+    // settings or a zone name can't be more than one argument.
+    function shellQuote(arg) {
+        return /^[\w@%+=:,.\/-]+$/.test(arg) ? arg : "'" + arg.replace(/'/g, "'\\''") + "'";
+    }
+
+    function commandText(steps) {
+        return steps.map(step => step.map(shellQuote).join(" ")).join(" && ");
+    }
+
+    function olderVersion(version, wanted) {
+        const parts = v => v.replace(/^v/, "").split(".").map(Number);
+        const [a, b] = [parts(version), parts(wanted)];
+        for (let i = 0; i < 3; i++) {
+            if ((a[i] ?? 0) !== (b[i] ?? 0))
+                return (a[i] ?? 0) < (b[i] ?? 0);
+        }
+        return false;
+    }
+
+    // Static like firewallScript; $1 is the terminal set in the shell.
+    readonly property string installToolsScript: `
+for terminal in "$1" xdg-terminal-exec ghostty kitty foot alacritty wezterm konsole ptyxis gnome-terminal kgx xfce4-terminal terminator xterm; do
+    if command -v "$terminal" >/dev/null 2>&1; then
+        echo "terminal $terminal"
+        break
+    fi
+done
+for tool in sudo pacman apt dnf zypper; do
+    command -v "$tool" >/dev/null 2>&1 && echo "$tool"
+done
+uname -m
+# The release builds need a glibc loader, which Alpine and NixOS don't have.
+if [ ! -e /etc/NIXOS ] && { [ -e /lib64/ld-linux-x86-64.so.2 ] || [ -e /lib/ld-linux-aarch64.so.1 ]; }; then
+    echo glibc
+fi
+# ostree (Silverblue, Bazzite), transactional-update (MicroOS, Aeon), or a read-only / or /usr (SteamOS).
+if [ -e /run/ostree-booted ] || [ -x /usr/sbin/transactional-update ] ||
+    awk '$2 == "/" || $2 == "/usr" { split($4, o, ","); ro = o[1] == "ro" } END { exit !ro }' /proc/mounts; then
+    echo immutable
+fi`
+
+    function checkInstallTools() {
+        Proc.runCommand("cast.installTools", ["sh", "-c", installToolsScript, "sh", SessionData.resolveTerminal()], out => {
+            const lines = out.trim().split("\n");
+            const terminal = (lines.find(l => l.startsWith("terminal ")) ?? "").slice("terminal ".length);
+            root.systemTools = lines.filter(l => !l.startsWith("terminal "));
+            root.terminalPrefix = root.terminalArgs(terminal);
+        });
+    }
+
+    function terminalArgs(terminal) {
+        switch (terminal.split("/").pop()) {
+        case "":
+            return [];
+        case "xdg-terminal-exec":
+        case "kitty":
+        case "foot":
+            return [terminal];
+        case "gnome-terminal":
+            return [terminal, "--wait", "--"];
+        case "ptyxis":
+        case "kgx":
+            return [terminal, "--"];
+        case "wezterm":
+            return [terminal, "start", "--always-new-process", "--"];
+        case "xfce4-terminal":
+        case "terminator":
+            return [terminal, "-x"];
+        }
+        return [terminal, "-e"];
+    }
+
+    // Shows the command and waits for Enter, so a failure can be read. The helper
+    // caches what's installed, so by default it restarts to see the new packages.
+    function runInTerminal(command, done) {
+        const script = 'printf "%s\\n\\n" "$1"; sh -c "$1" && echo "$2" || echo "$3"; echo "$4"; read -r _';
+        Proc.runCommand("", terminalPrefix.concat(["sh", "-c", script, "sh", command, I18n.trFor("cast", "Done"), I18n.trFor("cast", "The command failed"), I18n.trFor("cast", "Press Enter to close this window")]), () => (done ?? restartHelper)(), 0, Proc.noTimeout);
+    }
+
+    function installHelper() {
+        if (helperMethod === "aur") {
+            runInTerminal(helperCommand);
+            return;
+        }
+        helperUpdating = true;
+        Proc.runCommand("cast.downloadHelper", ["sh", "-c", helperDownloadCommand], (out, code) => {
+            root.helperUpdating = false;
+            if (code !== 0) {
+                ToastService.showError(I18n.trFor("cast", "Failed to download the Cast helper"));
+                return;
+            }
+            ToastService.showInfo(I18n.trFor("cast", "Cast helper installed"));
+            root.restartHelper();
+        }, 0, Proc.noTimeout);
+    }
+
+    // The shared helper stays up while anyone uses it, so a new binary needs it
+    // stopped. A running cast is left alone: the next start uses the new one.
+    function restartHelper() {
+        if (casting || starting || helperCasting) {
+            findHelper();
+            return;
+        }
+        _swappingHelper = helper.running;
+        Proc.runCommand("cast.stopHelper", ["pkill", "-x", helperName], () => {
+            if (!helper.running)
+                root.findHelper();
+        });
     }
 
     // A distro step beyond the package: what to do, and commands where there is one.
@@ -1030,7 +1444,7 @@ PluginComponent {
                 "commands": [
                     {
                         "label": "",
-                        "command": root.aurHelper + " -S doubletake-bin"
+                        "command": root.aurFound ? root.aurHelper + " -S doubletake-bin" : "https://aur.archlinux.org/packages/doubletake-bin"
                     }
                 ]
             };
@@ -1066,7 +1480,10 @@ PluginComponent {
             if (hint && !seen.includes(hint))
                 seen.push(hint);
         }
-        return seen.map(h => hintInfo(h)).filter(h => h);
+        // A command for a system that can't take packages would only fail.
+        return seen.map(h => hintInfo(h)).filter(h => h).map(h => knownDistro ? h : Object.assign({}, h, {
+                "commands": h.commands.filter(c => /^https?:/.test(c.command))
+            }));
     }
 
     function missingText(feature) {
@@ -1156,6 +1573,9 @@ PluginComponent {
     }
 
     function send(msg) {
+        // Only the command, what it plays stays out of the timeline.
+        if (!["check", "discover", "thumbnail", "volume", "debug"].includes(msg.cmd))
+            note("sent " + msg.cmd);
         _queue.push(JSON.stringify(msg) + "\n");
         if (helper.running)
             flush();
@@ -1245,7 +1665,10 @@ PluginComponent {
                     queueFolder = "";
                     queueFromLibrary = false;
                 }
+                if ((next?.phase ?? "") !== (session?.phase ?? ""))
+                    note(next ? next.kind + " " + next.phase + " on " + next.name : "cast ended");
                 devices = msg.devices ?? [];
+                noCast = msg.noCast ?? [];
                 rememberDevices(devices);
                 session = next;
                 if (_moveAfterEdit && (!next || JSON.stringify((next.queue ?? []).map(e => e.source)) === _moveAfterEdit.sources)) {
@@ -1263,7 +1686,11 @@ PluginComponent {
         case "error":
             starting = false;
             lastError = msg;
+            note("error " + msg.code + " " + (msg.detail ?? ""));
             console.warn("cast:", msg.code, msg.detail ?? "");
+            // The device couldn't reach the port after all, so the setup comes back.
+            if (msg.code === "serverUnreachable")
+                pluginService?.savePluginData(pluginId, "firewallConfirmed", "");
             return;
         case "check":
             // Helpers up to 0.0.2 don't report it and speak protocol 1.
@@ -1282,6 +1709,7 @@ PluginComponent {
             checked = true;
             return;
         case "warning":
+            note("warning " + msg.code);
             if (msg.code === "soundOnBoth" || msg.code === "airplaySound")
                 soundWarning = msg;
             return;
@@ -1338,9 +1766,12 @@ PluginComponent {
         savedShows = pluginService?.loadPluginState(pluginId, "shows", {}) ?? {};
         knownDevices = pluginService?.loadPluginState(pluginId, "knownDevices", {}) ?? {};
         findHelper();
+        checkFirewall();
+        checkInstallTools();
         Proc.runCommand("cast.findPacman", ["test", "-x", "/usr/bin/pacman"], (out, code) => root.onArch = code === 0);
         Proc.runCommand("cast.findAurHelper", ["sh", "-c", "command -v paru || command -v yay || true"], out => {
             const found = out.trim().split("/").pop();
+            root.aurFound = !!found;
             if (found)
                 root.aurHelper = found;
         });
@@ -1419,6 +1850,7 @@ PluginComponent {
 
         onStarted: {
             console.info("cast: helper started:", root.helperPath);
+            root.note("helper started");
             root._thumbPending = {};
             // hello goes first, so a cast queued while the helper started has this plugin as its owner.
             const first = [
@@ -1436,19 +1868,31 @@ PluginComponent {
                     "cmd": "discover",
                     "on": true
                 });
+            if (root.detailedLogging)
+                first.push({
+                    "cmd": "debug",
+                    "on": true
+                });
             root._queue = first.map(m => JSON.stringify(m) + "\n").concat(root._queue);
             root.flush();
         }
 
         onExited: (exitCode, exitStatus) => {
             console.info("cast: helper exited with", exitCode);
+            root.note("helper exited with " + exitCode);
             const wasWanted = root.wanted;
             root.session = null;
             root.starting = false;
             root.devices = [];
+            root.noCast = [];
             root._queue = [];
             if (!root.wanted)
                 root.thumbs = {};
+            if (root._swappingHelper) {
+                root._swappingHelper = false;
+                root.findHelper();
+                return;
+            }
             if (exitCode !== 0 && wasWanted)
                 root.lastError = {
                     "code": "helperCrashed"
@@ -1507,16 +1951,6 @@ PluginComponent {
             text: commandRow.label
             font.pixelSize: Theme.fontSizeSmall
             font.weight: Theme.fontWeightMedium
-            color: Theme.surfaceText
-        }
-
-        StyledText {
-            anchors.verticalCenter: parent.verticalCenter
-            width: commandRow.width - copyButton.width - commandRow.spacing - (commandLabel.visible ? commandLabel.width + commandRow.spacing : 0)
-            text: commandRow.command
-            isMonospace: true
-            wrapMode: Text.Wrap
-            font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceText
         }
 
@@ -2593,6 +3027,7 @@ PluginComponent {
 
                                         CommandRow {
                                             width: parent.width
+                                            label: I18n.trFor("cast", "Install command")
                                             command: win.notice?.code === "missingDependency" ? win.service.installCommand(win.notice.missing) : ""
                                         }
 
