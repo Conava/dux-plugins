@@ -42,7 +42,9 @@ PluginSettings {
     readonly property var missingIds: deps.filter(d => !d.present).map(d => d.id)
     readonly property bool requiredMissing: deps.some(d => d.required && !d.present)
     readonly property bool setupShown: !!service?.setupNeeded || missingIds.length > 0 || !!service?.helperUpdateAvailable
-    readonly property color recommendedColor: Theme.blend(SettingsMetrics.rowColor, Theme.warning, SettingsMetrics.highlightBlend * 2)
+    // A soft tint, so the button to fix a row is what stands out.
+    readonly property color requiredColor: Theme.blend(SettingsMetrics.rowColor, Theme.error, SettingsMetrics.highlightBlend)
+    readonly property color recommendedColor: Theme.blend(SettingsMetrics.rowColor, Theme.warning, SettingsMetrics.highlightBlend)
 
     function value(key, fallback) {
         rev;
@@ -305,7 +307,6 @@ PluginSettings {
 
         property var service: null
         property string runText: ""
-        property color textColor: Theme.surfaceText
 
         spacing: Theme.spacingS
 
@@ -335,7 +336,7 @@ PluginSettings {
                 visible: !!helperActions.service?.helperUpdating
                 text: I18n.trFor("cast", "Updating...")
                 font.pixelSize: Theme.fontSizeSmall
-                color: helperActions.textColor
+                color: Theme.surfaceVariantText
             }
 
             DButton {
@@ -456,8 +457,7 @@ PluginSettings {
 
             SettingsRow {
                 iconName: "upgrade"
-                iconColor: Theme.surfaceText
-                subtitleColor: Theme.surfaceText
+                iconColor: Theme.warning
                 title: I18n.trFor("cast", "New Cast helper available")
                 subtitle: I18n.trFor("cast", "Updating is highly recommended. Version %1 remains compatible, but some features may be unavailable").arg(root.service?.helperVersion ?? "")
 
@@ -473,16 +473,11 @@ PluginSettings {
             id: installGroup
 
             readonly property string command: root.missingIds.length > 0 ? (root.service?.installCommand(root.missingIds) ?? "") : ""
-            readonly property color textColor: root.requiredMissing ? Theme.onErrorContainer : Theme.surfaceText
 
             visible: command !== ""
-            slotColor: root.requiredMissing ? Theme.errorContainer : root.recommendedColor
 
             SettingsRow {
                 iconName: "download"
-                iconColor: installGroup.textColor
-                titleColor: installGroup.textColor
-                subtitleColor: installGroup.textColor
                 title: I18n.trFor("cast", "Install all missing packages")
                 subtitle: root.service?.knownDistro ? "" : I18n.trFor("cast", "Install with your package manager: %1").arg(installGroup.command)
 
@@ -523,21 +518,18 @@ PluginSettings {
             readonly property bool firewallOpen: !root.service || root.service.firewall === "" || root.service.firewallReady
 
             visible: !!root.service?.helperProblem || root.requiredMissing || !firewallOpen
-            slotColor: Theme.errorContainer
+            slotColor: root.requiredColor
 
             SettingsRow {
                 visible: !!root.service?.helperProblem
                 iconName: "memory"
-                iconColor: Theme.onErrorContainer
-                titleColor: Theme.onErrorContainer
-                subtitleColor: Theme.onErrorContainer
+                iconColor: Theme.error
                 title: root.service?.helperOutdated ? I18n.trFor("cast", "Cast helper is outdated") : I18n.trFor("cast", "Cast helper not installed")
                 subtitle: I18n.trFor("cast", "Required for all casting features")
 
                 body: HelperActions {
                     width: parent.width
                     service: root.service
-                    textColor: Theme.onErrorContainer
                     runText: root.service?.helperOutdated ? I18n.trFor("cast", "Update now") : I18n.trFor("cast", "Install now")
                 }
             }
@@ -547,10 +539,7 @@ PluginSettings {
 
                 PackageRow {
                     service: root.service
-                    iconColor: Theme.onErrorContainer
-                    titleColor: Theme.onErrorContainer
-                    subtitleColor: Theme.onErrorContainer
-                    trailingBadgeColor: Theme.onErrorContainer
+                    iconColor: Theme.error
                     trailingBadge: I18n.trFor("cast", "Required")
                     actions: true
                 }
@@ -559,9 +548,7 @@ PluginSettings {
             FirewallRow {
                 visible: !requiredGroup.firewallOpen
                 service: root.service
-                iconColor: Theme.onErrorContainer
-                titleColor: Theme.onErrorContainer
-                subtitleColor: Theme.onErrorContainer
+                iconColor: Theme.error
             }
         }
 
@@ -575,9 +562,6 @@ PluginSettings {
 
                 PackageRow {
                     service: root.service
-                    iconColor: Theme.surfaceText
-                    subtitleColor: Theme.surfaceText
-                    trailingBadgeColor: Theme.surfaceText
                     trailingBadge: I18n.trFor("cast", "Recommended")
                     actions: true
                 }
