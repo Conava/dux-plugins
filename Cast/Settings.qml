@@ -40,8 +40,12 @@ PluginSettings {
     readonly property string airplayPorts: value("airplayPorts", "47840-47849")
     readonly property var deps: service?.deps ?? []
     readonly property var missingIds: deps.filter(d => !d.present).map(d => d.id)
-    readonly property bool requiredMissing: deps.some(d => d.required && !d.present)
-    readonly property bool setupShown: !!service?.setupNeeded || missingIds.length > 0 || !!service?.helperUpdateAvailable
+    // Recommended packages the user doesn't want; they stay installable in the package list.
+    readonly property var dismissedIds: value("dismissedPackages", [])
+    // What Setup still asks for.
+    readonly property var openIds: missingIds.filter(id => !dismissedIds.includes(id))
+    readonly property var requiredIds: deps.filter(d => d.required && !d.present).map(d => d.id)
+    readonly property bool setupShown: !!service?.setupNeeded || openIds.length > 0 || !!service?.helperUpdateAvailable
     // A soft tint, so the button to fix a row is what stands out.
     readonly property color requiredColor: Theme.blend(SettingsMetrics.rowColor, Theme.error, SettingsMetrics.highlightBlend)
     readonly property color recommendedColor: Theme.blend(SettingsMetrics.rowColor, Theme.warning, SettingsMetrics.highlightBlend)
@@ -168,6 +172,7 @@ PluginSettings {
         // Shown as a button; the command itself is only copied.
         property bool canRun: !!service?.canInstall
         property string runText: I18n.trFor("cast", "Install now")
+        property string copyText: I18n.trFor("cast", "Copy install command")
         // Replaces running the command in a terminal.
         property var run: null
         // A short label in front, such as which hardware the command is for.
@@ -191,12 +196,14 @@ PluginSettings {
 
         DButton {
             anchors.verticalCenter: parent.verticalCenter
-            visible: commandRow.canRun && !commandRow.isLink
+            visible: commandRow.canRun || commandRow.isLink
             buttonHeight: Theme.buttonHeightXS
-            iconName: "download"
-            text: commandRow.runText
+            iconName: commandRow.isLink ? "open_in_new" : "download"
+            text: commandRow.isLink ? I18n.trFor("cast", "Open page") : commandRow.runText
             onClicked: {
-                if (commandRow.run)
+                if (commandRow.isLink)
+                    Qt.openUrlExternally(commandRow.command);
+                else if (commandRow.run)
                     commandRow.run();
                 else
                     commandRow.service.runInTerminal(commandRow.command);
@@ -206,16 +213,12 @@ PluginSettings {
         DActionButton {
             id: copyButton
             anchors.verticalCenter: parent.verticalCenter
-            iconName: commandRow.isLink ? "open_in_new" : "content_copy"
+            visible: !commandRow.isLink
+            iconName: "content_copy"
             iconSize: Theme.iconSizeSmall
-            tooltipText: commandRow.isLink ? I18n.trFor("cast", "Open") : I18n.trFor("cast", "Copy")
+            tooltipText: commandRow.copyText
             Accessible.name: tooltipText
-            onClicked: {
-                if (commandRow.isLink)
-                    Qt.openUrlExternally(commandRow.command);
-                else
-                    Quickshell.execDetached(["dms", "cl", "copy", commandRow.command]);
-            }
+            onClicked: Quickshell.execDetached(["dms", "cl", "copy", commandRow.command])
         }
     }
 
@@ -271,8 +274,14 @@ PluginSettings {
 
         required property var modelData
         property var service: null
-        // Only in Setup, under the disclaimer; the full lists show the status.
-        property bool actions: false
+        property bool canDismiss: false
+        readonly property string command: {
+            if (modelData.manual)
+                return service?.hintsFor([modelData.id])[0]?.commands[0]?.command ?? "";
+            return service?.knownDistro ? service.installCommand([modelData.id]) : "";
+        }
+
+        signal dismissed
 
         iconName: modelData.present ? "check_circle" : "error"
         iconColor: modelData.present ? Theme.success : (modelData.required ? Theme.error : Theme.warning)
@@ -281,23 +290,106 @@ PluginSettings {
         trailingBadge: modelData.present ? I18n.trFor("cast", "Installed") : I18n.trFor("cast", "Missing")
         trailingBadgeColor: modelData.present ? Theme.surfaceVariantText : (modelData.required ? Theme.error : Theme.warning)
 
-        body: Column {
-            width: parent.width
-            spacing: Theme.spacingS
-            visible: packageRow.actions && !packageRow.modelData.present
-            height: visible ? implicitHeight : 0
+        Row {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: !packageRow.modelData.present
+            spacing: Theme.spacingXS
 
             CommandRow {
-                width: parent.width
+                anchors.verticalCenter: parent.verticalCenter
                 service: packageRow.service
-                command: packageRow.service?.knownDistro ? packageRow.service.installCommand([packageRow.modelData.id]) : ""
+                command: packageRow.command
             }
 
-            PackageHints {
-                width: parent.width
-                service: packageRow.service
-                ids: [packageRow.modelData.id]
+            DActionButton {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: packageRow.canDismiss
+                iconName: "close"
+                iconSize: Theme.iconSizeSmall
+                tooltipText: I18n.trFor("cast", "Dismiss")
+                Accessible.name: tooltipText
+                onClicked: packageRow.dismissed()
             }
+        }
+
+        body: PackageHints {
+            width: parent.width
+            service: packageRow.service
+            ids: !packageRow.modelData.present && (!packageRow.modelData.manual || packageRow.command === "") ? [packageRow.modelData.id] : []
+        }
+    }
+
+    // One click for everything listed; the command is there to read first.
+    component SetupCard: StyledRect {
+        id: setupCard
+
+        property var service: null
+        property string heading: ""
+        property string text: ""
+        property var ids: []
+        property bool full: false
+        readonly property string command: service?.setupCommand(ids, full) ?? ""
+
+        radius: Theme.groupedListOuterRadius
+        // Mixed from the page color: a named surface can match it on some themes.
+        color: Theme.blend(SettingsMetrics.rowColor, Theme.surfaceText, SettingsMetrics.highlightBlend / 2)
+        implicitHeight: details.implicitHeight + actions.implicitHeight + Theme.spacingM * 3
+
+        Column {
+            id: details
+            x: Theme.spacingM
+            y: Theme.spacingM
+            width: parent.width - Theme.spacingM * 2
+            spacing: Theme.spacingS
+
+            StyledText {
+                width: parent.width
+                text: setupCard.heading
+                font.pixelSize: Theme.fontSizeMedium
+                font.weight: Theme.fontWeightMedium
+                color: Theme.surfaceText
+            }
+
+            StyledText {
+                width: parent.width
+                text: (setupCard.service?.setupItems(setupCard.ids, setupCard.full) ?? []).join(", ")
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.surfaceVariantText
+            }
+
+            StyledRect {
+                width: parent.width
+                height: commandText.implicitHeight + Theme.spacingS * 2
+                radius: Theme.cornerRadiusSmall
+                color: Theme.surfaceContainer
+
+                StyledText {
+                    id: commandText
+                    x: Theme.spacingS
+                    y: Theme.spacingS
+                    width: parent.width - Theme.spacingS * 2
+                    text: setupCard.command
+                    isMonospace: true
+                    wrapMode: Text.Wrap
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.surfaceVariantText
+                }
+            }
+        }
+
+        CommandRow {
+            id: actions
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: Theme.spacingM
+            anchors.bottomMargin: Theme.spacingM
+            service: setupCard.service
+            canRun: !!service?.canUseSudo
+            runText: setupCard.text
+            copyText: I18n.trFor("cast", "Copy command")
+            run: () => setupCard.service.runSetup(setupCard.ids, setupCard.full)
+            command: setupCard.command
         }
     }
 
@@ -447,6 +539,16 @@ PluginSettings {
                 textColor: Theme.onSecondaryContainer
                 onClicked: Qt.openUrlExternally(helperActions.service.installGuide)
             }
+
+            DButton {
+                anchors.verticalCenter: parent.verticalCenter
+                buttonHeight: Theme.buttonHeightXS
+                iconName: "open_in_new"
+                text: I18n.trFor("cast", "Repository")
+                backgroundColor: Theme.secondaryContainer
+                textColor: Theme.onSecondaryContainer
+                onClicked: Qt.openUrlExternally(helperActions.service.helperRepository)
+            }
         }
     }
 
@@ -463,18 +565,22 @@ PluginSettings {
                     "use": I18n.trFor("cast", "Device discovery")
                 }] : [])
 
-        iconName: kind === "none" ? "info" : done ? "check_circle" : "shield"
+        readonly property bool open: !!service?.firewallOpen
+
+        iconName: kind === "none" ? "info" : open ? "check_circle" : "shield"
+        // Red only when the rules say closed; what can't be read stays neutral.
+        iconColor: kind !== "" && !done ? Theme.error : open ? Theme.success : Theme.primary
         title: {
             if (kind === "none")
                 return I18n.trFor("cast", "No firewall detected");
             if (done)
                 return I18n.trFor("cast", "Firewall");
-            return known ? I18n.trFor("cast", "Open the ports in %1").arg(kind) : I18n.trFor("cast", "Open the ports in your firewall");
+            return I18n.trFor("cast", "Open the ports in %1").arg(kind);
         }
         subtitle: {
             if (kind === "none")
                 return I18n.trFor("cast", "If your network is filtered elsewhere, open these ports there");
-            if (done)
+            if (open)
                 return I18n.trFor("cast", "The ports are open");
             if (known)
                 return I18n.trFor("cast", "These ports must be open for cast devices to reach this computer");
@@ -501,7 +607,7 @@ PluginSettings {
 
             StyledText {
                 width: parent.width
-                visible: !firewallRow.done && !!firewallRow.service?.canUseSudo && !!firewallRow.service?.firewallCommand
+                visible: !firewallRow.open && !!firewallRow.service?.canUseSudo && !!firewallRow.service?.firewallCommand
                 text: firewallRow.service?.firewallDisclaimer ?? ""
                 wrapMode: Text.WordWrap
                 font.pixelSize: Theme.fontSizeSmall
@@ -511,10 +617,11 @@ PluginSettings {
             CommandRow {
                 width: parent.width
                 service: firewallRow.service
-                canRun: !firewallRow.done && !!firewallRow.service?.canUseSudo
+                canRun: !!firewallRow.service?.canUseSudo
                 runText: I18n.trFor("cast", "Apply now")
+                copyText: I18n.trFor("cast", "Copy command")
                 run: () => firewallRow.service.runInTerminal(firewallRow.service.firewallCommand, () => firewallRow.service.checkFirewall())
-                command: firewallRow.done ? "" : (firewallRow.service?.firewallCommand ?? "")
+                command: firewallRow.open ? "" : (firewallRow.service?.firewallCommand ?? "")
             }
 
             DButton {
@@ -527,15 +634,6 @@ PluginSettings {
                 onClicked: Qt.openUrlExternally(firewallRow.service.firewallGuide)
             }
 
-            DButton {
-                visible: !firewallRow.done
-                buttonHeight: Theme.buttonHeightXS
-                iconName: "check"
-                text: I18n.trFor("cast", "Ports are open")
-                backgroundColor: Theme.secondaryContainer
-                textColor: Theme.onSecondaryContainer
-                onClicked: firewallRow.service.confirmFirewall()
-            }
         }
     }
 
@@ -543,7 +641,7 @@ PluginSettings {
         width: parent.width
         spacing: 0
 
-        // Only what's left to do: red is needed for Cast to work, yellow is recommended.
+        // Only what's left to do: red is needed for Cast to work, orange is recommended.
         SettingsSectionLabel {
             visible: root.setupShown
             text: I18n.trFor("cast", "Setup")
@@ -567,47 +665,80 @@ PluginSettings {
             }
         }
 
+        Grid {
+            id: setupCards
+
+            readonly property string allCommand: root.service?.setupCommand(root.openIds, true) ?? ""
+            readonly property string requiredCommand: root.service?.setupCommand(root.requiredIds, false) ?? ""
+            // A firewall that isn't a Setup row doesn't make this a setup, it's only included.
+            readonly property int itemCount: (root.service?.setupItems(root.openIds, true).length ?? 0) - (root.service?.firewallPending && root.service.firewallReady ? 1 : 0)
+            readonly property bool both: requiredCommand !== "" && requiredCommand !== allCommand
+            readonly property bool sideBySide: both && width >= Theme.fontSizeMedium * 36
+            readonly property real cardWidth: sideBySide ? (width - spacing) / 2 : width
+            readonly property real cardHeight: Math.max(allCard.implicitHeight, requiredCard.implicitHeight)
+
+            width: parent.width
+            // Recommended packages alone, or a single item, are a row with its own button.
+            visible: allCommand !== "" && (root.requiredIds.length > 0 || !!root.service?.setupNeeded) && setupCards.itemCount > 1
+            columns: sideBySide ? 2 : 1
+            spacing: Theme.spacingM
+
+            SetupCard {
+                id: allCard
+                width: setupCards.cardWidth
+                height: setupCards.sideBySide ? setupCards.cardHeight : implicitHeight
+                service: root.service
+                heading: I18n.trFor("cast", "Full setup")
+                text: I18n.trFor("cast", "Setup all")
+                ids: root.openIds
+                full: true
+            }
+
+            SetupCard {
+                id: requiredCard
+                visible: setupCards.both
+                width: setupCards.cardWidth
+                height: setupCards.sideBySide ? setupCards.cardHeight : implicitHeight
+                service: root.service
+                heading: I18n.trFor("cast", "Required only")
+                text: I18n.trFor("cast", "Setup required")
+                ids: root.requiredIds
+            }
+        }
+
+        StyledText {
+            x: SettingsMetrics.rowPaddingH
+            width: parent.width - SettingsMetrics.rowPaddingH * 2
+            topPadding: Theme.spacingS
+            bottomPadding: Theme.spacingM
+            visible: setupCards.visible
+            text: [root.service?.helperProblem ? root.service.helperDisclaimer : "", root.service?.setupDisclaimer ?? ""].filter(t => t).join(" ")
+            wrapMode: Text.WordWrap
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+        }
+
         SettingsGroup {
-            id: installGroup
-
-            readonly property string command: root.missingIds.length > 0 ? (root.service?.installCommand(root.missingIds) ?? "") : ""
-
-            visible: command !== ""
+            visible: !root.service?.knownDistro && root.openIds.length > 0
 
             SettingsRow {
-                iconName: "download"
-                title: I18n.trFor("cast", "Install all missing packages")
-                subtitle: root.service?.knownDistro ? "" : I18n.trFor("cast", "Install with your package manager: %1").arg(installGroup.command)
+                title: I18n.trFor("cast", "Install with your package manager: %1").arg(root.service?.packagesFor(root.openIds).join(" ") ?? "")
 
-                body: Column {
-                    width: parent.width
-                    spacing: Theme.spacingS
-
-                    StyledText {
-                        width: parent.width
-                        visible: !!root.service?.canInstall
-                        text: root.service?.installDisclaimer ?? ""
-                        wrapMode: Text.WordWrap
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.error
-                    }
-
-                    CommandRow {
-                        service: root.service
-                        command: root.service?.knownDistro ? installGroup.command : ""
-                    }
-
-                    DButton {
-                        visible: !root.service?.knownDistro
-                        buttonHeight: Theme.buttonHeightXS
-                        iconName: "help"
-                        text: I18n.trFor("cast", "Help")
-                        backgroundColor: Theme.secondaryContainer
-                        textColor: Theme.onSecondaryContainer
-                        onClicked: Qt.openUrlExternally(root.service.dependenciesGuide)
-                    }
+                DButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    buttonHeight: Theme.buttonHeightXS
+                    iconName: "help"
+                    text: I18n.trFor("cast", "Help")
+                    backgroundColor: Theme.secondaryContainer
+                    textColor: Theme.onSecondaryContainer
+                    onClicked: Qt.openUrlExternally(root.service.dependenciesGuide)
                 }
             }
+        }
+
+        SettingsSectionLabel {
+            visible: requiredGroup.visible
+            text: I18n.trFor("cast", "Required")
         }
 
         SettingsGroup {
@@ -615,7 +746,7 @@ PluginSettings {
 
             readonly property bool firewallOpen: !root.service || root.service.firewall === "" || root.service.firewallReady
 
-            visible: !!root.service?.helperProblem || root.requiredMissing || !firewallOpen
+            visible: !!root.service?.helperProblem || root.requiredIds.length > 0 || !firewallOpen
             slotColor: root.requiredColor
 
             SettingsRow {
@@ -623,7 +754,7 @@ PluginSettings {
                 iconName: "memory"
                 iconColor: Theme.error
                 title: root.service?.helperOutdated ? I18n.trFor("cast", "Cast helper is outdated") : I18n.trFor("cast", "Cast helper not installed")
-                subtitle: I18n.trFor("cast", "Required for all casting features")
+                subtitle: root.deps.length > 0 ? I18n.trFor("cast", "Required for all casting features") : I18n.trFor("cast", "Required for all casting features. Other packages are checked once it is installed")
 
                 body: HelperActions {
                     width: parent.width
@@ -638,8 +769,7 @@ PluginSettings {
                 PackageRow {
                     service: root.service
                     iconColor: Theme.error
-                    trailingBadge: I18n.trFor("cast", "Required")
-                    actions: true
+                    trailingBadge: ""
                 }
             }
 
@@ -650,18 +780,24 @@ PluginSettings {
             }
         }
 
+        SettingsSectionLabel {
+            visible: missingRecommended.count > 0
+            text: I18n.trFor("cast", "Recommended")
+        }
+
         SettingsGroup {
             visible: missingRecommended.count > 0
             slotColor: root.recommendedColor
 
             Repeater {
                 id: missingRecommended
-                model: root.deps.filter(d => !d.required && !d.present)
+                model: root.deps.filter(d => !d.required && !d.present && !root.dismissedIds.includes(d.id))
 
                 PackageRow {
                     service: root.service
-                    trailingBadge: I18n.trFor("cast", "Recommended")
-                    actions: true
+                    canDismiss: true
+                    trailingBadge: ""
+                    onDismissed: root.save("dismissedPackages", root.dismissedIds.concat([modelData.id]))
                 }
             }
         }
@@ -890,12 +1026,36 @@ PluginSettings {
         }
 
         SettingsSectionLabel {
+            text: I18n.trFor("cast", "Bar")
+        }
+
+        SettingsGroup {
+            SettingsButtonGroupRow {
+                iconName: "visibility"
+                text: I18n.trFor("cast", "Show the pill")
+                model: [I18n.trFor("cast", "Always"), I18n.trFor("cast", "While casting")]
+                values: [false, true]
+                value: root.value("pillOnlyWhileCasting", false)
+                fallbackValue: false
+                onValueSelected: value => root.save("pillOnlyWhileCasting", value)
+            }
+
+            SettingsToggleRow {
+                iconName: "label"
+                text: I18n.trFor("cast", "Show the device name")
+                description: I18n.trFor("cast", "Horizontal bars only")
+                checked: root.value("showDeviceName", true)
+                onToggled: checked => root.save("showDeviceName", checked)
+            }
+        }
+
+        SettingsSectionLabel {
             text: I18n.trFor("cast", "Firewall and ports")
         }
 
         SettingsGroup {
             FirewallRow {
-                visible: !!root.service && root.service.firewallReady
+                visible: !!root.service && root.service.firewall !== ""
                 service: root.service
             }
 
@@ -929,36 +1089,21 @@ PluginSettings {
         }
 
         SettingsSectionLabel {
-            text: I18n.trFor("cast", "Bar")
-        }
-
-        SettingsGroup {
-            SettingsButtonGroupRow {
-                iconName: "visibility"
-                text: I18n.trFor("cast", "Show the pill")
-                model: [I18n.trFor("cast", "Always"), I18n.trFor("cast", "While casting")]
-                values: [false, true]
-                value: root.value("pillOnlyWhileCasting", false)
-                fallbackValue: false
-                onValueSelected: value => root.save("pillOnlyWhileCasting", value)
-            }
-
-            SettingsToggleRow {
-                iconName: "label"
-                text: I18n.trFor("cast", "Show the device name")
-                description: I18n.trFor("cast", "Horizontal bars only")
-                checked: root.value("showDeviceName", true)
-                onToggled: checked => root.save("showDeviceName", checked)
-            }
-        }
-
-        SettingsSectionLabel {
             text: I18n.trFor("cast", "Helper")
         }
 
         SettingsGroup {
             SettingsRow {
                 iconName: "memory"
+                iconColor: {
+                    if (!root.service?.helperResolved)
+                        return Theme.primary;
+                    if (root.service.helperProblem)
+                        return Theme.error;
+                    if (root.service.helperUpdateAvailable)
+                        return Theme.warning;
+                    return root.service.helperVersion ? Theme.success : Theme.primary;
+                }
                 title: "cast-helper"
                 subtitle: {
                     if (!root.service?.helperResolved)
@@ -972,14 +1117,31 @@ PluginSettings {
             }
 
             SettingsTextFieldRow {
+                id: helperPathField
+
+                readonly property string saved: root.value("helperPath", "")
+                property string edited: saved
+
+                function savePath() {
+                    if (edited.trim() !== saved)
+                        root.save("helperPath", edited.trim());
+                }
+
                 iconName: "folder_open"
                 text: I18n.trFor("cast", "Helper path")
                 description: I18n.trFor("cast", "Only needed for a helper outside PATH and ~/.local/share/dms/cast/bin")
                 placeholderText: "cast-helper"
-                value: root.value("helperPath", "")
-                onEditingFinished: value => {
-                    if (value.trim() !== root.value("helperPath", ""))
-                        root.save("helperPath", value.trim());
+                value: saved
+                onSavedChanged: edited = saved
+                onValueEdited: value => edited = value
+                onAccepted: savePath()
+
+                actions: DButton {
+                    visible: helperPathField.edited.trim() !== helperPathField.saved
+                    buttonHeight: Theme.buttonHeightXS
+                    iconName: "save"
+                    text: I18n.trFor("cast", "Save")
+                    onClicked: helperPathField.savePath()
                 }
             }
 
@@ -1006,7 +1168,7 @@ PluginSettings {
             visible: !!root.service?.helperPath
 
             SettingsRow {
-                visible: root.deps.length === 0
+                visible: root.deps.length === 0 && !root.service?.lastError
                 iconName: "hourglass_top"
                 title: I18n.trFor("cast", "Checking packages...")
             }

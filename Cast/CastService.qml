@@ -51,6 +51,7 @@ PluginComponent {
             + " && dms dl " + base + "/SHA256SUMS | grep \" " + file + "$\" | sha256sum -c && chmod +x " + file
             + " && ./" + file + " version && mv " + file + " " + helperName + ")";
     }
+    readonly property string helperRepository: "https://github.com/Conava/dux-cast"
     readonly property string dependenciesGuide: "https://github.com/Conava/dux-cast#1-dependencies"
     readonly property string firewallGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#3-open-the-firewall"
 
@@ -86,12 +87,12 @@ PluginComponent {
     // Shown right above every button that installs or changes something.
     readonly property string helperDisclaimer: {
         if (helperMethod === "download")
-            return I18n.trFor("cast", "Downloads cast-helper %1 from github.com/Conava/dux-cast and runs it on this computer. It is not part of Dux Shell. The download is verified against the release checksums.").arg(helperRelease);
+            return I18n.trFor("cast", "Downloads cast-helper %1 from github.com/Conava/dux-cast and runs it on this computer. It is not an official part of Dux Shell. The download is verified against the release checksums.").arg(helperRelease);
         if (helperMethod === "aur")
-            return I18n.trFor("cast", "Installs cast-helper from the AUR in a terminal. It is not part of Dux Shell.");
+            return I18n.trFor("cast", "Installs cast-helper from the AUR in a terminal. It is not an official part of Dux Shell.");
         return "";
     }
-    readonly property string installDisclaimer: I18n.trFor("cast", "Installs with your package manager in a terminal. Your password is required.")
+    readonly property string setupDisclaimer: I18n.trFor("cast", "Runs in a terminal. Your password is required.")
     readonly property string firewallDisclaimer: I18n.trFor("cast", "Changes your firewall rules in a terminal. Your password is required.")
     property bool helperUpdating: false
     property bool _swappingHelper: false
@@ -146,27 +147,15 @@ PluginComponent {
     }
     // FedoraWorkstation has no mdns service but opens 5353 with its high ports.
     readonly property bool firewallOpen: !!firewallRules && (firewallMdns || portOpen("udp", "5353")) && neededPorts.every(p => portOpen(p.proto, p.range))
-    // The confirmation counts for this firewall and these kinds of ports only;
-    // saving another port keeps it, since that's a deliberate choice.
     readonly property string firewallKey: firewall + " " + neededPorts.map(p => p.proto).join(" ")
     // Only where the rules can be read and changed; anyone else manages them by hand.
     readonly property bool canChangeRules: !!firewallRules && canUseSudo && (firewall === "firewalld" || firewall === "ufw")
     // By protocol, what the ports were before being changed here, to offer removing their rules.
     property var previousPorts: ({})
-    // With no firewall there's nothing to open, the settings only name the ports.
-    readonly property bool firewallReady: firewall === "none" || (firewall !== "" && (firewallOpen || (pluginData.firewallConfirmed ?? "") === firewallKey))
-    readonly property var firewallSteps: {
-        switch (firewall) {
-        case "firewalld":
-            {
-                const add = ["sudo", "firewall-cmd", "--permanent"].concat(firewallZone ? ["--zone=" + firewallZone] : []);
-                return [add.concat(["--add-service=mdns"])].concat(firewallAddSteps(neededPorts));
-            }
-        case "ufw":
-            return firewallAddSteps(neededPorts);
-        }
-        return [];
-    }
+    // Only rules that can be read and say closed count against the setup; saving
+    // another port is a deliberate choice, so that counts as fine too.
+    readonly property bool firewallReady: firewall !== "" && (!firewallRules || firewallOpen || (pluginData.firewallConfirmed ?? "") === firewallKey)
+    readonly property var firewallSteps: firewallStepsFor(neededPorts)
     readonly property string firewallCommand: commandText(firewallSteps)
     readonly property bool helperProblem: helperResolved && (!helperPath || helperOutdated)
     // The popout only points to the settings while this is set.
@@ -736,6 +725,20 @@ PluginComponent {
         setSetting("favoriteName", unset ? "" : device.name);
     }
 
+    // A dismissal lasts while the package is missing; if it goes missing again, it shows again.
+    function forgetInstalled() {
+        const dismissed = pluginData.dismissedPackages ?? [];
+        const kept = dismissed.filter(id => !deps.find(d => d.id === id)?.present);
+        if (kept.length !== dismissed.length)
+            setSetting("dismissedPackages", kept);
+    }
+
+    // Once the rules say open, a closed port later is news again.
+    onFirewallOpenChanged: {
+        if (firewallOpen && pluginData.firewallConfirmed)
+            setSetting("firewallConfirmed", "");
+    }
+
     function note(text) {
         history = history.slice(-99).concat([new Date().toTimeString().slice(0, 8) + " " + text]);
     }
@@ -764,12 +767,14 @@ if firewall-cmd --state >/dev/null 2>&1; then
     if pkcheck --action-id org.fedoraproject.FirewallD1.config.info --process $$ >/dev/null 2>&1; then
         echo "ports $(firewall-cmd --zone="$zone" --list-ports)"
         echo "services $(firewall-cmd --zone="$zone" --list-services)"
+        [ "$zone" = trusted ] && echo "ports 1-65535/tcp 1-65535/udp"
     fi
 elif grep -qs '^ENABLED=yes' /etc/ufw/ufw.conf; then
     echo ufw
     if [ -r /etc/ufw/user.rules ]; then
         echo ports
         grep '^### tuple ### allow' /etc/ufw/user.rules
+        grep -qs '^DEFAULT_INPUT_POLICY="ACCEPT"' /etc/default/ufw && echo "ports 1-65535/tcp 1-65535/udp"
     fi
 elif systemctl is-active -q nftables iptables; then
     echo other
@@ -835,7 +840,8 @@ fi`
         if (next[proto] === newRange)
             delete next[proto];
         previousPorts = next;
-        confirmFirewall();
+        if (firewallOpen)
+            confirmFirewall();
     }
 
     // A rule for exactly these ports, which can be removed again.
@@ -895,8 +901,8 @@ fi`
         }
         firewall = kind || "none";
         firewallZone = zone ?? "";
-        firewallRules = rules;
         firewallMdns = mdns;
+        firewallRules = rules;
     }
 
     // Writes a bug report to $1, starting with the plugin's part in $2. Static like firewallScript.
@@ -952,7 +958,7 @@ mkdir -p "\${1%/*}"
 
     // Where the widget sits on each bar, for problems only some layouts have.
     function widgetPlacement() {
-        const isCast = e => /^cast(:|$)/.test(typeof e === "string" ? e : e?.id ?? "");
+        const isCast = e => /^(plugin_)?cast(:|$)/.test(typeof e === "string" ? e : e?.id ?? "");
         const bars = (SettingsData.barConfigs ?? []).map(bar => {
             const side = ["left", "center", "right"].find(s => (bar[s + "Widgets"] ?? []).some(isCast));
             const entry = side ? bar[side + "Widgets"].find(isCast) : null;
@@ -975,7 +981,7 @@ mkdir -p "\${1%/*}"
             "Missing packages: " + (deps.filter(d => !d.present).map(statusOf).join(", ") || "none"),
             "Firewall: " + (firewall || "not checked") + (firewallZone ? " (zone " + firewallZone + ")" : ""),
             "Firewall rules: " + (firewallRules ? (firewallOpen ? "readable, ports open" : "readable, ports not open") : "not readable"),
-            "Firewall confirmed by user: " + ((pluginData.firewallConfirmed ?? "") === firewallKey),
+            "Firewall kept by a port change: " + ((pluginData.firewallConfirmed ?? "") === firewallKey),
             "Needed ports: " + neededPorts.map(p => p.label).join(", "),
             "", "## Cast state",
             "Devices: " + JSON.stringify(devices),
@@ -1007,16 +1013,15 @@ mkdir -p "\${1%/*}"
                 if (code === 0)
                     ToastService.showInfo(I18n.trFor("cast", "Report copied"));
                 else
-                    ToastService.showError(I18n.trFor("cast", "Failed to create the report"));
+                    ToastService.showError(I18n.trFor("cast", "Failed to copy the report"));
             });
         });
     }
 
     function openReport() {
-        buildReport(() => Qt.openUrlExternally("file://" + reportFile));
+        buildReport(() => Qt.openUrlExternally(fileUrl(reportFile)));
     }
 
-    // For firewalls that can't be read: the user says the ports are open.
     function confirmFirewall() {
         pluginService?.savePluginData(pluginId, "firewallConfirmed", firewallKey);
     }
@@ -1379,6 +1384,72 @@ mkdir -p "\${1%/*}"
         return commandText(steps);
     }
 
+    // A package installed by hand has a command only where a hint gives one, as the AUR does.
+    function manualCommand(id) {
+        const command = hintsFor([id])[0]?.commands[0]?.command ?? "";
+        return knownDistro && !/^https?:/.test(command) ? command : "";
+    }
+
+    readonly property bool firewallPending: canUseSudo && !firewallOpen && firewallCommand !== ""
+
+    readonly property bool aurSetup: helperProblem && helperMethod === "aur"
+    // The helper knows the packages of each distro, so without one yet it installs them itself.
+    readonly property bool setupCoversPackages: helperProblem && !!helperCommand && helperCanInstall
+    readonly property bool helperCanInstall: canUseSudo && !systemTools.includes("immutable") && ["pacman", "apt", "dnf", "zypper"].some(t => systemTools.includes(t))
+
+    // With AirPlay on its way, the firewall step covers its ports too.
+    function setupFirewall(ids, full) {
+        const airplay = full && (aurSetup || (ids ?? []).includes("doubletake")) && !neededPorts.some(p => p.proto === "udp");
+        return commandText(firewallStepsFor(neededPorts.concat(airplay ? [{
+                    "proto": "udp",
+                    "range": airplayPorts
+                }] : [])));
+    }
+
+    // What one click can do: the helper, these packages and the firewall. full adds what's optional.
+    function setupParts(ids, full) {
+        const manual = (ids ?? []).filter(id => deps.find(d => d.id === id)?.manual);
+        const helperParts = [];
+        const covered = setupCoversPackages;
+        if (helperProblem && helperCommand) {
+            helperParts.push(aurSetup ? commandText([[aurHelper, "-S", "--needed", helperName]]) : helperCommand);
+            if (helperCanInstall)
+                helperParts.push(commandText([[aurSetup ? helperName : bundledHelper, "install-missing", full ? "all" : "required"]]));
+        }
+        return helperParts.concat(covered ? [] : [knownDistro ? installCommand(ids) : ""].concat(manual.map(manualCommand)), firewallPending ? [setupFirewall(ids, full)] : []).filter(c => c);
+    }
+
+    function setupCommand(ids, full) {
+        return setupParts(ids, full).join(" && ");
+    }
+
+    function setupItems(ids, full) {
+        const included = (ids ?? []).filter(id => deps.find(d => d.id === id)?.manual ? manualCommand(id) : knownDistro);
+        const missingLabel = full ? I18n.trFor("cast", "All missing packages") : I18n.trFor("cast", "Missing required packages");
+        const helper = !helperProblem || !helperCommand ? [] : [helperName].concat(helperCanInstall ? [missingLabel] : []);
+        return helper.concat(setupCoversPackages ? [] : packagesFor(included), firewallPending ? [I18n.trFor("cast", "Firewall rules")] : []);
+    }
+
+    function runSetup(ids, full) {
+        runInTerminal(setupCommand(ids, full), () => {
+            root.restartHelper();
+            root.checkFirewall();
+        });
+    }
+
+    function firewallStepsFor(ports) {
+        switch (firewall) {
+        case "firewalld":
+            {
+                const add = ["sudo", "firewall-cmd", "--permanent"].concat(firewallZone ? ["--zone=" + firewallZone] : []);
+                return [add.concat(["--add-service=mdns"])].concat(firewallAddSteps(ports));
+            }
+        case "ufw":
+            return firewallAddSteps(ports);
+        }
+        return [];
+    }
+
     // Everything that ends up in a shell goes through here, so ports from the
     // settings or a zone name can't be more than one argument.
     function shellQuote(arg) {
@@ -1531,6 +1602,11 @@ fi`
                         "command": "https://github.com/omarroth/doubletake/releases"
                     }
                 ]
+            };
+        case "noPackage":
+            return {
+                "text": I18n.trFor("cast", "Not available in the repositories of this distribution"),
+                "commands": []
             };
         case "rpmfusionHeif":
             return {
@@ -1767,6 +1843,11 @@ fi`
                 pluginService?.savePluginData(pluginId, "firewallConfirmed", "");
             return;
         case "check":
+            // An outdated helper still reports what's installed.
+            missing = msg.missing ?? [];
+            deps = msg.deps ?? [];
+            distro = msg.distro ?? "arch";
+            forgetInstalled();
             // Helpers up to 0.0.2 don't report it and speak protocol 1.
             if ((msg.protocol ?? 1) < helperProtocol) {
                 console.warn("cast: helper speaks protocol", msg.protocol, "but the plugin needs", helperProtocol);
@@ -1777,9 +1858,6 @@ fi`
                 return;
             }
             helperVersion = msg.version ?? "";
-            missing = msg.missing ?? [];
-            deps = msg.deps ?? [];
-            distro = msg.distro ?? "arch";
             checked = true;
             return;
         case "warning":
@@ -1886,6 +1964,12 @@ fi`
     function useHelper(path) {
         helperPath = path;
         helperResolved = true;
+        if (!path) {
+            deps = [];
+            missing = [];
+            helperVersion = "";
+            checked = false;
+        }
         ensureRunningIfWanted();
     }
 
@@ -2033,7 +2117,7 @@ fi`
             anchors.verticalCenter: parent.verticalCenter
             iconName: commandRow.isLink ? "open_in_new" : "content_copy"
             iconSize: Theme.iconSizeSmall
-            tooltipText: commandRow.isLink ? I18n.trFor("cast", "Open") : I18n.trFor("cast", "Copy")
+            tooltipText: commandRow.isLink ? I18n.trFor("cast", "Open") : I18n.trFor("cast", "Copy install command")
             Accessible.name: tooltipText
             onClicked: {
                 if (commandRow.isLink)

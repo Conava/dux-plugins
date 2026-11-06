@@ -70,8 +70,9 @@ ln -s ~/.local/src/dux-plugins/Cast ~/.config/dms/plugins/cast
 ```
 
 Enable it in Settings > Plugins and add it to a bar or the Control Center. Until the helper, the
-required packages and the firewall are done, the popout only links to the settings. The Setup
-section there lists what's left in red and recommended packages in yellow, with buttons to install
+required packages and the firewall are done, the popout only links to the settings. Packages only
+mirroring needs show as a notice instead, so files and links keep working. The Setup section there
+lists what's left in red and recommended packages in orange, with buttons to install
 them or copy the command. Anything that needs root opens in a terminal. On a system the plugin
 can't install on, it names what's needed and links here.
 
@@ -89,8 +90,6 @@ read and changed, saving a new port offers to open it and to remove the rule for
 | TCP 47830 | Playing files |
 | UDP 47840-47849 | AirPlay |
 | UDP 5353 (mDNS) | Finding devices |
-
-Where the rules can't be read without root, use the "Ports are open" button to complete this step.
 
 ## Device not found
 
@@ -117,8 +116,10 @@ first. For visual issues, attach a screenshot.
 
 ## Network and files
 
-The plugin itself only loads the covers of songs another app casts, from where that app says. What
-cast-helper contacts and writes is listed in
+The plugin loads the covers of songs another app casts, from where that app says. When asked to
+install or update cast-helper, it downloads the release from github.com/Conava/dux-cast into
+`~/.local/share/dms/cast/bin/`. A bug report is written to `~/.local/share/dms/cast/report.txt` and
+stays there until it's shared by hand. What cast-helper contacts and writes is listed in
 [its README](https://github.com/Conava/dux-cast#network-and-files): the cast devices on the local
 network, youtube.com for YouTube links, and the server of a direct link to ask for its media type.
 

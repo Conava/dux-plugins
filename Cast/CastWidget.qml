@@ -146,7 +146,7 @@ PluginComponent {
             anchors.verticalCenter: parent.verticalCenter
             iconName: commandRow.isLink ? "open_in_new" : "content_copy"
             iconSize: Theme.iconSizeSmall
-            tooltipText: commandRow.isLink ? I18n.trFor("cast", "Open") : I18n.trFor("cast", "Copy")
+            tooltipText: commandRow.isLink ? I18n.trFor("cast", "Open") : I18n.trFor("cast", "Copy install command")
             Accessible.name: tooltipText
             onClicked: {
                 if (commandRow.isLink)
@@ -742,20 +742,33 @@ PluginComponent {
                         color: Theme.warning
                     }
 
-                    DButton {
-                        buttonHeight: Theme.buttonHeightXS
-                        enabled: !panel.service?.helperUpdating
-                        iconName: panel.service?.helperMethod ? "download" : "settings"
-                        text: {
-                            if (panel.service?.helperUpdating)
-                                return I18n.trFor("cast", "Updating...");
-                            return panel.service?.helperMethod ? I18n.trFor("cast", "Update now") : I18n.trFor("cast", "Open settings");
+                    Row {
+                        spacing: Theme.spacingS
+
+                        DButton {
+                            buttonHeight: Theme.buttonHeightXS
+                            enabled: !panel.service?.helperUpdating
+                            iconName: panel.service?.helperMethod ? "download" : "settings"
+                            text: {
+                                if (panel.service?.helperUpdating)
+                                    return I18n.trFor("cast", "Updating...");
+                                return panel.service?.helperMethod ? I18n.trFor("cast", "Update now") : I18n.trFor("cast", "Open settings");
+                            }
+                            onClicked: {
+                                if (panel.service.helperMethod)
+                                    panel.service.installHelper();
+                                else
+                                    panel.openSettings();
+                            }
                         }
-                        onClicked: {
-                            if (panel.service.helperMethod)
-                                panel.service.installHelper();
-                            else
-                                panel.openSettings();
+
+                        DButton {
+                            buttonHeight: Theme.buttonHeightXS
+                            iconName: "open_in_new"
+                            text: I18n.trFor("cast", "Repository")
+                            backgroundColor: Theme.secondaryContainer
+                            textColor: Theme.onSecondaryContainer
+                            onClicked: Qt.openUrlExternally(panel.service.helperRepository)
                         }
                     }
                 }
