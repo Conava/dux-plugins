@@ -887,12 +887,23 @@ PluginSettings {
                 checked: root.value("convertVideos", true)
                 onToggled: checked => root.save("convertVideos", checked)
             }
+        }
+
+        SettingsSectionLabel {
+            text: I18n.trFor("cast", "Firewall and ports")
+        }
+
+        SettingsGroup {
+            FirewallRow {
+                visible: !!root.service && root.service.firewallReady
+                service: root.service
+            }
 
             PortField {
                 service: root.service
                 proto: "tcp"
                 saved: root.port
-                text: I18n.trFor("cast", "Port")
+                text: I18n.trFor("cast", "Media port (TCP)")
                 onPortSaved: port => root.save("mediaPort", port)
             }
 
@@ -901,18 +912,12 @@ PluginSettings {
                 proto: "tcp"
                 range: root.port
             }
-        }
 
-        SettingsSectionLabel {
-            text: I18n.trFor("cast", "AirPlay")
-        }
-
-        SettingsGroup {
             PortField {
                 service: root.service
                 proto: "udp"
                 saved: root.airplayPorts
-                text: I18n.trFor("cast", "UDP ports")
+                text: I18n.trFor("cast", "AirPlay ports (UDP)")
                 onPortSaved: port => root.save("airplayPorts", port)
             }
 
@@ -988,19 +993,6 @@ PluginSettings {
                     textColor: Theme.onSecondaryContainer
                     onClicked: Qt.openUrlExternally(root.service.installGuide)
                 }
-            }
-        }
-
-        SettingsSectionLabel {
-            visible: !!root.service && root.service.firewallReady
-            text: I18n.trFor("cast", "Firewall")
-        }
-
-        SettingsGroup {
-            visible: !!root.service && root.service.firewallReady
-
-            FirewallRow {
-                service: root.service
             }
         }
 
