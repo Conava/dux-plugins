@@ -38,24 +38,11 @@ PluginSettings {
     }
     readonly property string port: value("mediaPort", "47830")
     readonly property string airplayPorts: value("airplayPorts", "47840-47849")
-    // The local network of the default route, for the firewall commands.
-    property string lanSubnet: "192.168.0.0/16"
-
-    Component.onCompleted: {
-        Proc.runCommand("cast.lanSubnet", ["ip", "-4", "-j", "route", "show"], (out, code) => {
-            if (code !== 0)
-                return;
-            try {
-                const routes = JSON.parse(out);
-                const dev = routes.find(r => r.dst === "default")?.dev;
-                const lan = routes.find(r => r.dev === dev && r.scope === "link" && r.dst.includes("/"));
-                if (lan)
-                    root.lanSubnet = lan.dst;
-            } catch (e) {}
-        });
-    }
     readonly property var deps: service?.deps ?? []
     readonly property var missingIds: deps.filter(d => !d.present).map(d => d.id)
+    readonly property bool requiredMissing: deps.some(d => d.required && !d.present)
+    readonly property bool setupShown: !!service?.setupNeeded || missingIds.length > 0 || !!service?.helperUpdateAvailable
+    readonly property color recommendedColor: Theme.blend(SettingsMetrics.rowColor, Theme.warning, SettingsMetrics.highlightBlend * 2)
 
     function value(key, fallback) {
         rev;
@@ -80,7 +67,11 @@ PluginSettings {
 
     // The device list is live only while the helper runs, so this page asks for discovery while it's on screen.
     readonly property bool wantsDevices: !!service && visible && (Window.window?.visible ?? false)
-    onWantsDevicesChanged: service?.setDemand("settings", wantsDevices)
+    onWantsDevicesChanged: {
+        service?.setDemand("settings", wantsDevices);
+        if (wantsDevices)
+            service?.recheck();
+    }
     Component.onDestruction: service?.setDemand("settings", false)
 
     Connections {
@@ -171,6 +162,12 @@ PluginSettings {
         id: commandRow
 
         property string command: ""
+        property var service: null
+        // Shown as a button; the command itself is only copied.
+        property bool canRun: !!service?.canInstall
+        property string runText: I18n.trFor("cast", "Install now")
+        // Replaces running the command in a terminal.
+        property var run: null
         // A short label in front, such as which hardware the command is for.
         property string label: ""
         // A web page instead of a command: it opens rather than being copied.
@@ -190,14 +187,18 @@ PluginSettings {
             color: Theme.surfaceText
         }
 
-        StyledText {
+        DButton {
             anchors.verticalCenter: parent.verticalCenter
-            width: commandRow.width - copyButton.width - commandRow.spacing - (commandLabel.visible ? commandLabel.width + commandRow.spacing : 0)
-            text: commandRow.command
-            isMonospace: true
-            wrapMode: Text.Wrap
-            font.pixelSize: Theme.fontSizeSmall
-            color: Theme.surfaceText
+            visible: commandRow.canRun && !commandRow.isLink
+            buttonHeight: Theme.buttonHeightXS
+            iconName: "download"
+            text: commandRow.runText
+            onClicked: {
+                if (commandRow.run)
+                    commandRow.run();
+                else
+                    commandRow.service.runInTerminal(commandRow.command);
+            }
         }
 
         DActionButton {
@@ -254,6 +255,7 @@ PluginSettings {
 
                         width: hint.width
                         label: modelData.label
+                        service: hints.service
                         command: modelData.command
                     }
                 }
@@ -267,6 +269,8 @@ PluginSettings {
 
         required property var modelData
         property var service: null
+        // Only in Setup, under the disclaimer; the full lists show the status.
+        property bool actions: false
 
         iconName: modelData.present ? "check_circle" : "error"
         iconColor: modelData.present ? Theme.success : (modelData.required ? Theme.error : Theme.warning)
@@ -275,16 +279,329 @@ PluginSettings {
         trailingBadge: modelData.present ? I18n.trFor("cast", "Installed") : I18n.trFor("cast", "Missing")
         trailingBadgeColor: modelData.present ? Theme.surfaceVariantText : (modelData.required ? Theme.error : Theme.warning)
 
-        body: PackageHints {
+        body: Column {
             width: parent.width
-            service: packageRow.service
-            ids: packageRow.modelData.present ? [] : [packageRow.modelData.id]
+            spacing: Theme.spacingS
+            visible: packageRow.actions && !packageRow.modelData.present
+            height: visible ? implicitHeight : 0
+
+            CommandRow {
+                width: parent.width
+                service: packageRow.service
+                command: packageRow.service?.knownDistro ? packageRow.service.installCommand([packageRow.modelData.id]) : ""
+            }
+
+            PackageHints {
+                width: parent.width
+                service: packageRow.service
+                ids: [packageRow.modelData.id]
+            }
+        }
+    }
+
+    // Installing or updating the helper, or where to read how when the plugin can't do it.
+    component HelperActions: Column {
+        id: helperActions
+
+        property var service: null
+        property string runText: ""
+        property color textColor: Theme.surfaceText
+
+        spacing: Theme.spacingS
+
+        StyledText {
+            width: parent.width
+            visible: text !== ""
+            text: helperActions.service?.helperDisclaimer ?? ""
+            wrapMode: Text.WordWrap
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.error
+        }
+
+        Row {
+            spacing: Theme.spacingS
+
+            CommandRow {
+                anchors.verticalCenter: parent.verticalCenter
+                service: helperActions.service
+                canRun: !helperActions.service?.helperUpdating
+                runText: helperActions.runText
+                run: () => helperActions.service.installHelper()
+                command: helperActions.service?.helperCommand ?? ""
+            }
+
+            StyledText {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: !!helperActions.service?.helperUpdating
+                text: I18n.trFor("cast", "Updating...")
+                font.pixelSize: Theme.fontSizeSmall
+                color: helperActions.textColor
+            }
+
+            DButton {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: !helperActions.service?.helperCommand
+                buttonHeight: Theme.buttonHeightXS
+                iconName: "help"
+                text: I18n.trFor("cast", "Help")
+                backgroundColor: Theme.secondaryContainer
+                textColor: Theme.onSecondaryContainer
+                onClicked: Qt.openUrlExternally(helperActions.service.installGuide)
+            }
+        }
+    }
+
+    // The firewall step: which ports and why, and the command where the firewall is known.
+    component FirewallRow: SettingsRow {
+        id: firewallRow
+
+        property var service: null
+        readonly property string kind: service?.firewall ?? ""
+        readonly property bool done: !!service?.firewallReady
+        readonly property bool known: kind === "firewalld" || kind === "ufw"
+        readonly property var lines: (service?.neededPorts ?? []).concat(kind === "firewalld" ? [{
+                    "label": "mDNS",
+                    "use": I18n.trFor("cast", "Device discovery")
+                }] : [])
+
+        iconName: kind === "none" ? "info" : done ? "check_circle" : "shield"
+        title: {
+            if (kind === "none")
+                return I18n.trFor("cast", "No firewall detected");
+            if (done)
+                return I18n.trFor("cast", "Firewall");
+            return known ? I18n.trFor("cast", "Open the ports in %1").arg(kind) : I18n.trFor("cast", "Open the ports in your firewall");
+        }
+        subtitle: {
+            if (kind === "none")
+                return I18n.trFor("cast", "If your network is filtered elsewhere, open these ports there");
+            if (done)
+                return I18n.trFor("cast", "The ports are open");
+            if (known)
+                return I18n.trFor("cast", "These ports must be open for cast devices to reach this computer");
+            return I18n.trFor("cast", "Open these ports in your firewall");
+        }
+
+        body: Column {
+            width: parent.width
+            spacing: Theme.spacingS
+
+            Repeater {
+                model: firewallRow.lines
+
+                StyledText {
+                    required property var modelData
+
+                    width: parent.width
+                    text: modelData.label + ": " + modelData.use
+                    wrapMode: Text.WordWrap
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: firewallRow.subtitleColor
+                }
+            }
+
+            StyledText {
+                width: parent.width
+                visible: !firewallRow.done && !!firewallRow.service?.canUseSudo && !!firewallRow.service?.firewallCommand
+                text: firewallRow.service?.firewallDisclaimer ?? ""
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.error
+            }
+
+            CommandRow {
+                width: parent.width
+                service: firewallRow.service
+                canRun: !firewallRow.done && !!firewallRow.service?.canUseSudo
+                runText: I18n.trFor("cast", "Apply now")
+                run: () => firewallRow.service.runInTerminal(firewallRow.service.firewallCommand, () => firewallRow.service.checkFirewall())
+                command: firewallRow.service?.firewallCommand ?? ""
+            }
+
+            DButton {
+                visible: !firewallRow.known
+                buttonHeight: Theme.buttonHeightXS
+                iconName: "help"
+                text: I18n.trFor("cast", "Help")
+                backgroundColor: Theme.secondaryContainer
+                textColor: Theme.onSecondaryContainer
+                onClicked: Qt.openUrlExternally(firewallRow.service.firewallGuide)
+            }
+
+            DButton {
+                visible: !firewallRow.done
+                buttonHeight: Theme.buttonHeightXS
+                iconName: "check"
+                text: I18n.trFor("cast", "Ports are open")
+                backgroundColor: Theme.secondaryContainer
+                textColor: Theme.onSecondaryContainer
+                onClicked: firewallRow.service.confirmFirewall()
+            }
         }
     }
 
     Column {
         width: parent.width
         spacing: 0
+
+        // Only what's left to do: red is needed for Cast to work, yellow is recommended.
+        SettingsSectionLabel {
+            visible: root.setupShown
+            text: I18n.trFor("cast", "Setup")
+        }
+
+        SettingsGroup {
+            visible: !!root.service?.helperUpdateAvailable
+            slotColor: root.recommendedColor
+
+            SettingsRow {
+                iconName: "upgrade"
+                iconColor: Theme.surfaceText
+                subtitleColor: Theme.surfaceText
+                title: I18n.trFor("cast", "New Cast helper available")
+                subtitle: I18n.trFor("cast", "Updating is highly recommended. Version %1 remains compatible, but some features may be unavailable").arg(root.service?.helperVersion ?? "")
+
+                body: HelperActions {
+                    width: parent.width
+                    service: root.service
+                    runText: I18n.trFor("cast", "Update now")
+                }
+            }
+        }
+
+        SettingsGroup {
+            id: installGroup
+
+            readonly property string command: root.missingIds.length > 0 ? (root.service?.installCommand(root.missingIds) ?? "") : ""
+            readonly property color textColor: root.requiredMissing ? Theme.onErrorContainer : Theme.surfaceText
+
+            visible: command !== ""
+            slotColor: root.requiredMissing ? Theme.errorContainer : root.recommendedColor
+
+            SettingsRow {
+                iconName: "download"
+                iconColor: installGroup.textColor
+                titleColor: installGroup.textColor
+                subtitleColor: installGroup.textColor
+                title: I18n.trFor("cast", "Install all missing packages")
+                subtitle: root.service?.knownDistro ? "" : I18n.trFor("cast", "Install with your package manager: %1").arg(installGroup.command)
+
+                body: Column {
+                    width: parent.width
+                    spacing: Theme.spacingS
+
+                    StyledText {
+                        width: parent.width
+                        visible: !!root.service?.canInstall
+                        text: root.service?.installDisclaimer ?? ""
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.error
+                    }
+
+                    CommandRow {
+                        service: root.service
+                        command: root.service?.knownDistro ? installGroup.command : ""
+                    }
+
+                    DButton {
+                        visible: !root.service?.knownDistro
+                        buttonHeight: Theme.buttonHeightXS
+                        iconName: "help"
+                        text: I18n.trFor("cast", "Help")
+                        backgroundColor: Theme.secondaryContainer
+                        textColor: Theme.onSecondaryContainer
+                        onClicked: Qt.openUrlExternally(root.service.dependenciesGuide)
+                    }
+                }
+            }
+        }
+
+        SettingsGroup {
+            id: requiredGroup
+
+            readonly property bool firewallOpen: !root.service || root.service.firewall === "" || root.service.firewallReady
+
+            visible: !!root.service?.helperProblem || root.requiredMissing || !firewallOpen
+            slotColor: Theme.errorContainer
+
+            SettingsRow {
+                visible: !!root.service?.helperProblem
+                iconName: "memory"
+                iconColor: Theme.onErrorContainer
+                titleColor: Theme.onErrorContainer
+                subtitleColor: Theme.onErrorContainer
+                title: root.service?.helperOutdated ? I18n.trFor("cast", "Cast helper is outdated") : I18n.trFor("cast", "Cast helper not installed")
+                subtitle: I18n.trFor("cast", "Required for all casting features")
+
+                body: HelperActions {
+                    width: parent.width
+                    service: root.service
+                    textColor: Theme.onErrorContainer
+                    runText: root.service?.helperOutdated ? I18n.trFor("cast", "Update now") : I18n.trFor("cast", "Install now")
+                }
+            }
+
+            Repeater {
+                model: root.deps.filter(d => d.required && !d.present)
+
+                PackageRow {
+                    service: root.service
+                    iconColor: Theme.onErrorContainer
+                    titleColor: Theme.onErrorContainer
+                    subtitleColor: Theme.onErrorContainer
+                    trailingBadgeColor: Theme.onErrorContainer
+                    trailingBadge: I18n.trFor("cast", "Required")
+                    actions: true
+                }
+            }
+
+            FirewallRow {
+                visible: !requiredGroup.firewallOpen
+                service: root.service
+                iconColor: Theme.onErrorContainer
+                titleColor: Theme.onErrorContainer
+                subtitleColor: Theme.onErrorContainer
+            }
+        }
+
+        SettingsGroup {
+            visible: missingRecommended.count > 0
+            slotColor: root.recommendedColor
+
+            Repeater {
+                id: missingRecommended
+                model: root.deps.filter(d => !d.required && !d.present)
+
+                PackageRow {
+                    service: root.service
+                    iconColor: Theme.surfaceText
+                    subtitleColor: Theme.surfaceText
+                    trailingBadgeColor: Theme.surfaceText
+                    trailingBadge: I18n.trFor("cast", "Recommended")
+                    actions: true
+                }
+            }
+        }
+
+        SettingsGroup {
+            visible: root.setupShown
+
+            SettingsRow {
+                DButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    buttonHeight: Theme.buttonHeightXS
+                    iconName: "refresh"
+                    text: I18n.trFor("cast", "Check again")
+                    backgroundColor: Theme.secondaryContainer
+                    textColor: Theme.onSecondaryContainer
+                    onClicked: {
+                        root.service.restartHelper();
+                        root.service.checkFirewall();
+                    }
+                }
+            }
+        }
 
         SettingsGroup {
             SettingsDropdownRow {
@@ -502,13 +819,6 @@ PluginSettings {
                         root.save("mediaPort", value);
                 }
             }
-
-            SettingsRow {
-                body: CommandRow {
-                    width: parent.width
-                    command: "sudo ufw allow from " + root.lanSubnet + " to any port " + root.port + " proto tcp"
-                }
-            }
         }
 
         SettingsSectionLabel {
@@ -526,13 +836,6 @@ PluginSettings {
                 onEditingFinished: value => {
                     if (value && value !== root.airplayPorts)
                         root.save("airplayPorts", value);
-                }
-            }
-
-            SettingsRow {
-                body: CommandRow {
-                    width: parent.width
-                    command: "sudo ufw allow from " + root.lanSubnet + " to any port " + root.airplayPorts.replace("-", ":") + " proto udp"
                 }
             }
         }
@@ -573,28 +876,10 @@ PluginSettings {
                     if (!root.service?.helperResolved)
                         return "";
                     if (root.service.helperPath && root.service.helperOutdated)
-                        return I18n.trFor("cast", "Outdated, update it with one of these commands");
+                        return I18n.trFor("cast", "Outdated");
                     if (root.service.helperPath && root.service.helperVersion)
                         return root.service.helperPath + " · " + root.service.helperVersion;
                     return root.service.helperPath || I18n.trFor("cast", "Not installed");
-                }
-
-                body: Column {
-                    width: parent.width
-                    spacing: Theme.spacingS
-                    visible: !!root.service?.helperResolved && (!root.service.helperPath || root.service.helperOutdated)
-                    height: visible ? implicitHeight : 0
-
-                    CommandRow {
-                        width: parent.width
-                        command: root.service?.onArch ? root.service.aurHelper + " -S cast-helper" : ""
-                    }
-
-                    CommandRow {
-                        width: parent.width
-                        label: root.service?.onArch ? I18n.trFor("cast", "Or download") : ""
-                        command: root.service?.helperDownloadCommand ?? ""
-                    }
                 }
             }
 
@@ -623,56 +908,20 @@ PluginSettings {
             }
         }
 
-        // Every package the helper can use, from its check report.
         SettingsSectionLabel {
-            visible: !!root.service?.helperPath
-            text: I18n.trFor("cast", "Packages")
+            visible: !!root.service && root.service.firewallReady
+            text: I18n.trFor("cast", "Firewall")
         }
 
         SettingsGroup {
-            visible: !!root.service?.helperPath && root.deps.length > 0
+            visible: !!root.service && root.service.firewallReady
 
-            SettingsRow {
-                readonly property bool requiredMissing: root.deps.some(d => d.required && !d.present)
-                readonly property color tone: requiredMissing ? Theme.error : root.missingIds.length > 0 ? Theme.primary : Theme.success
-
-                rowColor: Theme.blend(SettingsMetrics.rowColor, tone, SettingsMetrics.highlightBlend)
-                iconName: requiredMissing ? "error" : "check_circle"
-                iconColor: tone
-                title: {
-                    if (requiredMissing)
-                        return I18n.trFor("cast", "Required packages are missing");
-                    if (root.missingIds.length > 0)
-                        return I18n.trFor("cast", "All required packages are installed");
-                    return I18n.trFor("cast", "Everything is installed");
-                }
-                subtitle: {
-                    if (root.missingIds.length === 0)
-                        return "";
-                    if (!root.service?.knownDistro)
-                        return I18n.trFor("cast", "Install these with your package manager");
-                    return requiredMissing ? "" : I18n.trFor("cast", "Install the recommended packages for every feature");
-                }
-
-                body: CommandRow {
-                    width: parent.width
-                    command: root.missingIds.length > 0 ? (root.service?.installCommand(root.missingIds) ?? "") : ""
-                }
-            }
-
-            SettingsRow {
-                DButton {
-                    anchors.verticalCenter: parent.verticalCenter
-                    buttonHeight: Theme.buttonHeightXS
-                    iconName: "refresh"
-                    text: I18n.trFor("cast", "Check again")
-                    backgroundColor: Theme.secondaryContainer
-                    textColor: Theme.onSecondaryContainer
-                    onClicked: root.service.recheck()
-                }
+            FirewallRow {
+                service: root.service
             }
         }
 
+        // Every package the helper can use, from its check report.
         SettingsSectionLabel {
             visible: !!root.service?.helperPath
             text: I18n.trFor("cast", "Required packages")
@@ -710,6 +959,48 @@ PluginSettings {
 
                 PackageRow {
                     service: root.service
+                }
+            }
+        }
+
+        SettingsSectionLabel {
+            text: I18n.trFor("cast", "Troubleshooting")
+        }
+
+        SettingsGroup {
+            SettingsToggleRow {
+                iconName: "manage_search"
+                text: I18n.trFor("cast", "Detailed logging")
+                description: I18n.trFor("cast", "Records more detail in the logs. Enable it before reproducing an issue")
+                checked: root.value("detailedLogging", false)
+                onToggled: checked => root.save("detailedLogging", checked)
+            }
+
+            SettingsRow {
+                iconName: "bug_report"
+                title: I18n.trFor("cast", "Bug report")
+                subtitle: I18n.trFor("cast", "Collects logs and system details for a bug report. It may contain device names, local addresses and file names. Review it before sharing, and attach a screenshot for visual issues")
+
+                body: Row {
+                    spacing: Theme.spacingS
+
+                    DButton {
+                        buttonHeight: Theme.buttonHeightXS
+                        iconName: "description"
+                        text: I18n.trFor("cast", "Open logs")
+                        backgroundColor: Theme.secondaryContainer
+                        textColor: Theme.onSecondaryContainer
+                        onClicked: root.service.openReport()
+                    }
+
+                    DButton {
+                        buttonHeight: Theme.buttonHeightXS
+                        iconName: "content_copy"
+                        text: I18n.trFor("cast", "Copy report")
+                        backgroundColor: Theme.secondaryContainer
+                        textColor: Theme.onSecondaryContainer
+                        onClicked: root.service.copyReport()
+                    }
                 }
             }
         }

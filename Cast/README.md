@@ -58,9 +58,7 @@ doubletake, which is explained there too.
 
 The plugin looks for `cast-helper` on `PATH`, then in `~/.local/share/dms/cast/bin/`. A
 development build from this repo's `./dev` script, in `~/.local/share/dms/cast/dev/`, comes
-first. A helper installed somewhere else can be set in Settings > Helper path. Until it's found,
-the popout shows the install command for your system. It does the same when a plugin update needs
-a newer helper.
+first. A helper installed somewhere else can be set in Settings > Helper path.
 
 ### 2. Install the plugin
 
@@ -71,18 +69,40 @@ git clone https://github.com/Conava/dux-plugins.git ~/.local/src/dux-plugins
 ln -s ~/.local/src/dux-plugins/Cast ~/.config/dms/plugins/cast
 ```
 
-Enable it in Settings > Plugins and add it to a bar or the Control Center. Settings > Plugins > Cast
-lists every package the helper can use, marks what's missing and shows the install command.
+Enable it in Settings > Plugins and add it to a bar or the Control Center. Until the helper, the
+required packages and the firewall are done, the popout only links to the settings. The Setup
+section there lists what's left in red and recommended packages in yellow, with buttons to install
+them or copy the command. Anything that needs root opens in a terminal. On a system the plugin
+can't install on, it names what's needed and links here.
+
+When a newer helper is recommended, the popout and the settings say so and offer to update it. An
+older helper keeps working as long as it speaks the protocol the plugin needs.
 
 ### 3. Open the firewall
 
-Only needed with a firewall. The ports can be changed in Settings, which also shows the `ufw`
-commands.
+The Setup section detects firewalld and ufw and can open the ports for them. For any other firewall,
+open these ports yourself. The ports can be changed in Settings.
 
 | Port | Used for |
 |---|---|
 | TCP 47830 | Playing files |
 | UDP 47840-47849 | AirPlay |
+| UDP 5353 (mDNS) | Finding devices |
+
+Where the rules can't be read without root, use the "Ports are open" button to complete this step.
+
+## Device not found
+
+A TV only shows up when it advertises Cast. If the popout shows that Cast is not available on a TV, check
+the TV's network connection, and that Chromecast built-in or Google Cast Receiver is enabled in its
+system apps.
+
+## Bug reports
+
+Settings > Troubleshooting opens or copies a report with the logs, the setup, the network, the
+appearance and where the widget sits. It can contain device names, local addresses and file names,
+so review it before sharing. For an issue during a cast, enable Detailed logging and reproduce it
+first. For visual issues, attach a screenshot.
 
 ## Notes
 
