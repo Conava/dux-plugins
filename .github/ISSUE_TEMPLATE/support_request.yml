@@ -1,0 +1,55 @@
+name: Support Request
+description: Help with installing, setting up or using a plugin
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Not sure whether it's a bug? Ask here. If it turns out to be one, it gets moved over.
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: Plugin
+      options:
+        - Cast
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What do you need help with?
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you've tried
+      description: Commands you ran, settings you changed, documentation you followed.
+    validations:
+      required: false
+  - type: textarea
+    id: report
+    attributes:
+      label: Report or logs
+      description: |
+        **Cast:** in the plugin's settings under Troubleshooting, click *Copy report* and paste it below. It lists missing packages, the firewall and the devices found, which answers most setup questions. Look it over first, it can contain device names and local addresses.
+        **Other plugins:** the output of `journalctl --user -u dms -b --no-pager | tail -n 200`.
+      value: |
+        <details>
+        <summary>Report</summary>
+
+        ```
+
+
+        ```
+
+        </details>
+    validations:
+      required: false
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+    validations:
+      required: false

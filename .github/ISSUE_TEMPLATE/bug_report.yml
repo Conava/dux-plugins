@@ -1,0 +1,76 @@
+name: Bug Report
+description: Something in a plugin is broken or behaves unexpectedly
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One problem per report, please. Check the open issues first, yours may already be there.
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: Plugin
+      options:
+        - Cast
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Cast device
+      description: For Cast, the TV, Chromecast or AirPlay receiver involved, with its model if you know it.
+      placeholder: e.g. Chromecast with Google TV, LG OLED C3, Apple TV 4K
+    validations:
+      required: false
+  - type: textarea
+    id: report
+    attributes:
+      label: Report or logs
+      description: |
+        **Cast:** in the plugin's settings under Troubleshooting, turn on *Detailed logging*, reproduce the problem, then click *Copy report* and paste it below. It can contain device names, local addresses and file names, so look it over first.
+        **Other plugins:** the output of `journalctl --user -u dms -b --no-pager | tail -n 200`.
+        Paste between the details tags to keep it collapsed.
+      value: |
+        <details>
+        <summary>Report</summary>
+
+        ```
+
+
+        ```
+
+        </details>
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings
+      description: For anything visual, please attach a screenshot or a short recording.
+    validations:
+      required: false

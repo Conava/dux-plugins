@@ -1,0 +1,54 @@
+name: Feature Request
+description: Suggest a new feature or an improvement for a plugin, or a new plugin
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One feature per request, please. Focused requests with a clear use case are much easier to act on than broad ones.
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: Plugin
+      options:
+        - Cast
+        - A new plugin
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature description
+      description: What would you like the plugin to do?
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: What do you want to do with it, and why doesn't the plugin cover that today?
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Devices or hardware involved
+      description: If the feature is about specific devices (a TV, speaker, receiver, GPU), name them. It helps to know who could test it.
+      placeholder: e.g. HomePod mini, Samsung TV with AirPlay
+    validations:
+      required: false
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed solution
+      description: Any ideas for how it could work or look? Mockups are welcome.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other tools or workarounds that do something similar today.
+    validations:
+      required: false
