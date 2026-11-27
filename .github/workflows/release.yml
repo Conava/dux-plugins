@@ -1,0 +1,66 @@
+name: release
+
+on:
+  push:
+    branches: [master]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Draft a release for every plugin version without one
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          for dir in */; do
+            folder=${dir%/}
+            [[ "$folder" =~ ^[A-Z][A-Za-z0-9]*$ && -f "$folder/plugin.json" ]] || continue
+            version=$(jq -er '.version' "$folder/plugin.json")
+            name=$(jq -r --arg folder "$folder" '.name // $folder' "$folder/plugin.json")
+            id=${folder,,}
+            tag="$id-v$version"
+
+            if ! git check-ref-format "refs/tags/$tag"; then
+              echo "skip $tag: not a valid tag name"
+              continue
+            fi
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "skip $tag: release exists"
+              continue
+            fi
+
+            # The tag may exist already from an earlier run that failed after pushing it.
+            if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              git tag "$tag" "$(git log -1 --format=%H -- "$folder/plugin.json")"
+              git push origin "refs/tags/$tag"
+            fi
+
+            range="refs/tags/$tag"
+            while read -r earlier; do
+              [ "$earlier" = "$tag" ] && continue
+              range="refs/tags/$earlier..refs/tags/$tag"
+              break
+            done < <(git tag --list "$id-v*" --sort=-v:refname)
+
+            notes=$(mktemp)
+            git log --reverse --format=%s "$range" \
+              | sed -n "/^$id:/{s/^/- /;p}" \
+              | sed -E 's/@([A-Za-z0-9_-]+)/`@\1`/g' > "$notes"
+
+            gh release create "$tag" --draft --verify-tag \
+              --title "$name plugin v$version" --notes-file "$notes"
+            echo "drafted $tag"
+          done

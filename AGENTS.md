@@ -131,6 +131,8 @@ Changes to the protocol are additive, so a client works with any helper whose pr
 - Version: bump `version` in `plugin.json` with every user-facing change (semver).
 - Commits: `<plugin folder in lowercase>: short lowercase summary`, e.g. `mywidget: hide when offline`. Repo-wide changes use `repo:`. Commit bodies put each sentence on its own line.
 - Scope: one plugin per PR.
+- Releases: for every plugin version on `master` without a release, a workflow creates the tag `<id>-v<version>` and a draft release.
+  The owner edits and publishes the draft.
 
 ## Registry submission
 
