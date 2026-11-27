@@ -495,7 +495,11 @@ PluginComponent {
         return favorite ? I18n.trFor("cast", "Off • %1").arg(favorite) : I18n.trFor("cast", "Off");
     }
     ccWidgetIsActive: casting || busy
-    ccDetailHeight: Theme.listItemTwoLineHeight * 7
+    // The shell sizes a plugin's detail from ccDetailHeight alone, so it follows
+    // the panel up to seven rows and the panel scrolls past that.
+    property real detailContentHeight: 0
+    readonly property real detailMaxHeight: Theme.listItemTwoLineHeight * 7
+    ccDetailHeight: detailContentHeight > 0 ? Math.min(detailContentHeight, detailMaxHeight) : detailMaxHeight
 
     onCcWidgetToggled: {
         if (service?.toggleFavorite())
@@ -516,6 +520,8 @@ PluginComponent {
                 service: root.service
                 showSettingsRow: true
                 onOpenSettings: root.openSettings()
+                onImplicitHeightChanged: root.detailContentHeight = implicitHeight
+                Component.onCompleted: root.detailContentHeight = implicitHeight
             }
         }
     }
