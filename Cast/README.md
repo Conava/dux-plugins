@@ -1,125 +1,143 @@
 # Cast
 
-Mirror your screen to Chromecast, Google TV and AirPlay devices, and play files, music, playlists,
-slideshows and links on Chromecast devices, from the bar or the Control Center.
+[![Version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FConava%2Fdux-plugins%2Fmaster%2FCast%2Fplugin.json&query=%24.version&label=version)](https://github.com/Conava/dux-plugins/commits/master/Cast)
+[![Dux Shell](https://img.shields.io/badge/Dux%20Shell-2.0%2B-blue)](https://github.com/duxlabs-dev/dux-shell)
+[![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
-![The player's start page next to the Cast popout](screenshots/overview.png)
+Mirror your screen to Chromecast, Google TV and AirPlay devices, and play files, music, playlists, slideshows and media links on Chromecast.
+Cast is controlled from the bar or the Control Center of [Dux Shell](https://github.com/duxlabs-dev/dux-shell).
+
+![The start page of the player next to the Cast popout](screenshots/overview.png)
+
+> [!TIP]
+> If you enjoy using Cast, please give it a thumbs up on its [registry issue](https://github.com/duxlabs-dev/dux-plugin-registry/issues/1089).
+> The rating decides how visible the plugin is in the registry and helps others to find it.
+
+[Features](#features) | [Installation](#installation) | [Reporting issues](#reporting-issues) | [Notes](#notes)
 
 <details>
-<summary>See it in action</summary>
+<summary>More screenshots</summary>
 
-The player shows what the TV shows, with the whole show in the filmstrip below.
+Create your own custom shows of images, videos or music: The player shows what the TV shows. The filmstrip below it contains the whole show and lets you control it.
 
 ![The player with a slideshow ready to start on the TV](screenshots/player.png)
 
-The popout lists the devices on the network. For a TV with both Chromecast and AirPlay, the buttons
-next to it pick which one mirrors, and the pin makes it the default.
+The popout lists all available devices on the network.
+For a TV with both Chromecast and AirPlay, the buttons next to the device select the protocol for mirroring, and the pin makes the device the default.
 
 ![The popout with a TV found](screenshots/devices.png)
 
-While something plays, the bar pill and the popout show it with its controls.
+Put in a YouTube link and the plugin opens it in the YouTube app of the device and gives you full control over playback.
 
 ![A YouTube link playing, in the bar pill and the popout](screenshots/playing.png)
-
-![The popout looking for devices](screenshots/searching.png)
 
 </details>
 
 ## Features
 
-- Screen mirroring with sound: Chromecast (720p or 1080p, 30 or 60 fps, GPU encoded) or AirPlay.
-- Sound on the cast device, on this computer, or both.
-- Videos, photos and music. Files the device can't play are converted on the GPU (8K, unsupported
-  codecs, HEIC).
-- A player for shows: mix files and folders, save them, play them on a timer or step through them.
-  `.m3u` and `.pls` playlists work too.
-- YouTube links open in the device's YouTube app. Direct media links play as they are.
+- Screen mirroring with sound, over Chromecast (up to 1080p60, encoded on the GPU) or AirPlay.
+- Play sound on the cast device, on your computer, or on both.
+- Videos, photos and music. Files that the device cannot play (e.g. 8K video, unsupported codecs or HEIC photos) are converted on the GPU in the background.
+- A player for shows: mix files and folders, images, videos and music, save them as shows, play them on a timer or step through them manually. `.m3u` and `.pls` playlists are supported.
+- YouTube links open in the YouTube app of the device and allow you to control playback.
+- Direct media links play any media file from the internet.
 - Controls in the bar pill, the Control Center and the media player widgets.
 
-A device with both Chromecast and AirPlay shows up once. Mirroring uses Chromecast unless AirPlay
-is picked for that device. Files, music and links always use Chromecast.
+| Device | Mirroring | Files, music, links |
+|---|---|---|
+| Chromecast, Google TV, TVs with Chromecast built-in | Yes | Yes |
+| Apple TV and TVs with AirPlay | Yes | Not yet |
+| HomePod and other AirPlay speakers | No | Not yet |
+
+Mirroring uses Chromecast unless AirPlay is selected for that device.
+Files, music and links are not supported via AirPlay and only work on Chromecast devices.
 
 ## Installation
 
-Cast needs the plugin and `cast-helper`, which does the casting. The helper lives in its own
-repository, [cast-helper](https://github.com/Conava/cast-helper), so other apps can share it.
+Cast requires a separate program [cast-helper](https://github.com/Conava/cast-helper) for the actual casting. The plugin itself only provides the GUI and the settings.
+Other apps reuse the same helper.
+Cast requires Dux Shell 2.0 or newer.
 
 ### 1. Install cast-helper
 
-The [installation guide](https://github.com/Conava/cast-helper#installation) has the packages and
-commands for each distro, and covers AirPlay. The Setup section in the plugin's settings can also
-install the helper in one click.
+The Setup section in the settings of the plugin can do the installation of cast-helper and the required packages for you, as well as configure the firewall.
+Alternatively, please consult the [installation guide of cast-helper](https://github.com/Conava/cast-helper#installation).
 
-The plugin looks for `cast-helper` on `PATH`, then in `~/.local/share/dms/cast/bin/`. A
-development build from this repo's `./dev` script, in `~/.local/share/dms/cast/dev/`, comes
-first. A helper installed somewhere else can be set in Settings > Helper path.
+<details>
+<summary>Linking plugin and helper</summary>
+
+The plugin looks for the helper in these locations, in order of priority:
+1. The Helper path setting in the plugin settings.
+2. A development build from the `./dev` script of this repository, in `~/.local/share/dms/cast/dev/`.
+3. `cast-helper` on `PATH`.
+4. `~/.local/share/dms/cast/bin/`.
+
+</details>
 
 ### 2. Install the plugin
 
-From Settings > Plugins, or by hand:
+Install the plugin from Settings > Plugins, or by hand as described in the [README of this repository](../README.md#installation) (folder `Cast`, id `cast`).
+Enable the plugin and add it to a bar or the Control Center.
 
-```bash
-git clone https://github.com/Conava/dux-plugins.git ~/.local/src/dux-plugins
-ln -s ~/.local/src/dux-plugins/Cast ~/.config/dms/plugins/cast
-```
+Until the helper, the required packages and the firewall are set up, the popout only links to the settings.
+The Setup section in the settings lists the remaining steps, with buttons to install the packages or copy the command.
+Commands that require root open in a terminal.
 
-Enable it in Settings > Plugins and add it to a bar or the Control Center. Until the helper, the
-required packages and the firewall are done, the popout only links to the settings. Packages only
-mirroring needs show as a notice instead, so files and links keep working. The Setup section there
-lists what's left in red and recommended packages in orange, with buttons to install
-them or copy the command. Anything that needs root opens in a terminal. On a system the plugin
-can't install on, it names what's needed and links to the guide.
-
-When a newer helper is recommended, the popout and the settings say so and offer to update it. An
-older helper keeps working as long as it speaks the protocol the plugin needs.
+When a new helper version is available, the popout and the settings offer the update.
+An older helper keeps working as long as it supports the protocol version that the plugin requires.
 
 ### 3. Open the firewall
 
-The Setup section detects firewalld and ufw and can open the ports for them. For any other firewall,
-open these ports yourself. The ports can be changed in Settings. Where the firewall rules can be
-read and changed, saving a new port offers to open it and to remove the rule for the old one.
+The Setup section detects firewalld and ufw and can open the ports for them.
+For any other firewall, open these ports by hand:
 
-| Port | Used for |
+| Port | Description |
 |---|---|
-| TCP 47830 | Playing files |
-| UDP 47840-47849 | AirPlay |
+| TCP 47830 | Playing files (Chromecast only) |
+| UDP 47840-47849 | Mirroring (AirPlay only) |
 | UDP 5353 (mDNS) | Finding devices |
+
+The ports can be changed in the settings.
 
 ## Device not found
 
-A TV only shows up when it advertises Cast. If the popout shows that Cast is not available on a TV, check
-the TV's network connection, and that Chromecast built-in or Google Cast Receiver is enabled in its
-system apps.
+A TV is only listed when it advertises Cast, so check that Chromecast built-in or Google Cast Receiver is enabled in the system apps of the TV.
+Also ensure that both devices are on the same network, and that the firewall allows UDP 5353 (mDNS) for discovery.
+Guest networks, VPNs and some routers may block discovery, so try to connect both devices to the same router without any of these in between.
 
-## Bug reports
+## Reporting issues
 
-Settings > Troubleshooting opens or copies a report with the logs, the setup, the network, the
-appearance and where the widget sits. It can contain device names, local addresses and file names,
-so review it before sharing. For an issue during a cast, enable Detailed logging and reproduce it
-first. For visual issues, attach a screenshot. Problems with the plugin go to this repo's
-issues. If casting itself fails, for example no image on the cast device or a device that won't
-connect, the [cast-helper issues](https://github.com/Conava/cast-helper/issues) are the place. If
-in doubt, open the issue here.
+Issues with the plugin UI, such as buttons, menus, settings or the setup, belong in the [issues of this repository](https://github.com/Conava/dux-plugins/issues/new/choose).
+If the casting itself fails, for example with no image on the TV or a device that does not connect, open the issue in the [issues of cast-helper](https://github.com/Conava/cast-helper/issues/new/choose).
+If you are not sure, open the issue in this repository.
+
+The [README of this repository](../README.md#reporting-issues) describes the general steps.
+For Cast, also include a report:
+
+1. For a problem during a cast, enable Detailed logging under Troubleshooting in the Cast settings and reproduce the problem.
+2. Click Copy report in the same section.
+3. Read the report before you post it, because it can contain device names, local addresses and file names. Redact any sensitive information.
+4. Paste the report into the issue and name the cast device.
+
+Casting depends on the GPU, the distribution and the cast device, so a fix often requires a test on your machine before it is released.
 
 ## Notes
 
-- AirPlay asks for the PIN on the device the first time. Sound stays on this computer, because
-  doubletake would set the device to full volume.
-- Settings above 1080p at 30 fps are marked experimental: they can lag on slow networks or devices.
-- Mirroring asks for the screen through the desktop portal. The choice is remembered.
-- Discovery is IPv4 only.
-- Other apps can use the same helper. Their casts show in the bar and the Control Center too, with
-  the app they play from.
+- The first AirPlay cast asks for the PIN that the device shows. Sound stays on this computer, because doubletake would set the device to full volume and does not allow changing it.
+- Settings above 1080p at 30 fps are marked experimental, because they can lag on slow networks or older/slower devices.
+- Mirroring requests the screen through the desktop portal. The selection is remembered.
+- Discovery supports IPv4 only.
 
-## Network and files
+<details>
+<summary>Network and files</summary>
 
-The plugin loads the covers of songs another app casts, from where that app says. When asked to
-install or update cast-helper, it downloads the release from github.com/Conava/cast-helper into
-`~/.local/share/dms/cast/bin/`. A bug report is written to `~/.local/share/dms/cast/report.txt` and
-stays there until it's shared by hand. What cast-helper contacts and writes is listed in
-[its README](https://github.com/Conava/cast-helper#network-and-files): the cast devices on the local
-network, youtube.com for YouTube links, and the server of a direct link to ask for its media type.
+The plugin loads the covers of songs that another app casts from the address that the app provides.
+When you install or update cast-helper from the settings, the plugin downloads the release from github.com/Conava/cast-helper into `~/.local/share/dms/cast/bin/`.
+A bug report is written to `~/.local/share/dms/cast/report.txt`.
+The [README of cast-helper](https://github.com/Conava/cast-helper#network-and-files) lists all outgoing connections and files that the helper uses.
+
+</details>
 
 ## License
 
-See [LICENSE](../LICENSE).
+MIT, see [LICENSE](../LICENSE).
