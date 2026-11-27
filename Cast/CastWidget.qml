@@ -512,6 +512,7 @@ PluginComponent {
             DevicePanel {
                 id: detailPanel
                 width: parent.width
+                capLists: false
                 service: root.service
                 showSettingsRow: true
                 onOpenSettings: root.openSettings()
@@ -565,6 +566,46 @@ PluginComponent {
         }
     }
 
+    // Holds a CcGroup and scrolls it once it grows past maxHeight. The group
+    // sits inside the flickable because a SettingsGroup lays out its own rows.
+    component CappedList: DFlickable {
+        id: capped
+
+        // False while the owning popout is closed, which `visible` does not report for
+        // popouts that stay alive.
+        property bool shown: true
+        property bool limit: true
+        // The wrapped CcGroup. The list stops at the bottom edge of its maxRows-th
+        // row, from the group's own layout, so rows of any height count.
+        property var group: null
+        readonly property int maxRows: 5
+        readonly property real maxHeight: group && group.slots.length > maxRows ? group.slots[maxRows - 1].y + group.slots[maxRows - 1].height : Infinity
+        readonly property bool overflowing: contentHeight > height
+        readonly property Item windowFocusItem: Window.activeFocusItem
+
+        width: parent.width
+        contentWidth: width
+        contentHeight: contentItem.childrenRect.height
+        height: limit ? Math.min(contentHeight, maxHeight) : contentHeight
+        clip: overflowing
+        interactive: overflowing
+        wheelEnabled: overflowing
+
+        // Keep a keyboard-focused row in view.
+        onWindowFocusItemChanged: {
+            const item = windowFocusItem;
+            if (!shown || !overflowing || !item)
+                return;
+            for (let p = item; p; p = p.parent) {
+                if (p !== contentItem)
+                    continue;
+                const top = item.mapToItem(contentItem, 0, 0).y;
+                revealRange(top, top + item.height);
+                return;
+            }
+        }
+    }
+
     // Device list, now playing and cast controls, shared by the popout and the
     // Control Center detail panel.
     component DevicePanel: Column {
@@ -574,6 +615,8 @@ PluginComponent {
         property bool shown: true
         property var parentPopout: null
         property bool showSettingsRow: false
+        // The Control Center detail scrolls as a whole, so it turns the cap off.
+        property bool capLists: true
         // A dropdown's menu is its own window. Registering it with the host's
         // tracker keeps the popout or Control Center open while it's clicked.
         property var transientSurfaceTracker: parentPopout ? parentPopout.transientSurfaceTracker : (PopoutService.controlCenterPopout?.transientSurfaceTracker ?? null)
@@ -1161,56 +1204,63 @@ PluginComponent {
         }
 
         // Devices, when nothing casts
-        CcGroup {
+        CappedList {
+            limit: panel.capLists
+            shown: panel.shown
+            group: deviceGroup
             visible: panel.ready && !panel.session && deviceRepeater.count > 0
 
-            Repeater {
-                id: deviceRepeater
-                model: panel.session ? [] : panel.devices
+            CcGroup {
+                id: deviceGroup
 
-                CcListRow {
-                    id: deviceRow
+                Repeater {
+                    id: deviceRepeater
+                    model: panel.session ? [] : panel.devices
 
-                    required property var modelData
+                    CcListRow {
+                        id: deviceRow
 
-                    readonly property bool isStarting: panel.service.starting && panel.service.pendingDevice === modelData.id
+                        required property var modelData
 
-                    iconName: panel.service.deviceIcon(modelData)
-                    title: modelData.name
-                    subtitle: isStarting ? I18n.trFor("cast", "Connecting...") : (modelData.model ?? "")
-                    clickable: !panel.service.starting
-                    onClicked: panel.service.startCast(modelData.id)
+                        readonly property bool isStarting: panel.service.starting && panel.service.pendingDevice === modelData.id
 
-                    // Which protocol mirrors, only for devices that speak both.
-                    DButtonGroup {
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: panel.service?.hasBothProtocols(deviceRow.modelData) ?? false
-                        size: "small"
-                        iconOnly: true
-                        checkEnabled: false
-                        model: [
-                            {
-                                "icon": "cast",
-                                "tooltip": I18n.trFor("cast", "Mirror over Chromecast")
-                            },
-                            {
-                                "icon": "airplay",
-                                "tooltip": I18n.trFor("cast", "Mirror over AirPlay")
+                        iconName: panel.service.deviceIcon(modelData)
+                        title: modelData.name
+                        subtitle: isStarting ? I18n.trFor("cast", "Connecting...") : (modelData.model ?? "")
+                        clickable: !panel.service.starting
+                        onClicked: panel.service.startCast(modelData.id)
+
+                        // Which protocol mirrors, only for devices that speak both.
+                        DButtonGroup {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: panel.service?.hasBothProtocols(deviceRow.modelData) ?? false
+                            size: "small"
+                            iconOnly: true
+                            checkEnabled: false
+                            model: [
+                                {
+                                    "icon": "cast",
+                                    "tooltip": I18n.trFor("cast", "Mirror over Chromecast")
+                                },
+                                {
+                                    "icon": "airplay",
+                                    "tooltip": I18n.trFor("cast", "Mirror over AirPlay")
+                                }
+                            ]
+                            currentIndex: panel.service.mirrorProtocol(deviceRow.modelData) === "airplay" ? 1 : 0
+                            onSelectionChanged: (index, selected) => {
+                                if (selected)
+                                    panel.service.setMirrorProtocol(deviceRow.modelData.id, index === 1 ? "airplay" : "chromecast");
                             }
-                        ]
-                        currentIndex: panel.service.mirrorProtocol(deviceRow.modelData) === "airplay" ? 1 : 0
-                        onSelectionChanged: (index, selected) => {
-                            if (selected)
-                                panel.service.setMirrorProtocol(deviceRow.modelData.id, index === 1 ? "airplay" : "chromecast");
                         }
-                    }
 
-                    CcPinChip {
-                        anchors.verticalCenter: parent.verticalCenter
-                        pinned: panel.service?.favorite === deviceRow.modelData.id
-                        // Next to the protocol choice the label doesn't fit.
-                        iconOnly: !pinned || (panel.service?.hasBothProtocols(deviceRow.modelData) ?? false)
-                        onToggled: panel.service.setFavorite(deviceRow.modelData)
+                        CcPinChip {
+                            anchors.verticalCenter: parent.verticalCenter
+                            pinned: panel.service?.favorite === deviceRow.modelData.id
+                            // Next to the protocol choice the label doesn't fit.
+                            iconOnly: !pinned || (panel.service?.hasBothProtocols(deviceRow.modelData) ?? false)
+                            onToggled: panel.service.setFavorite(deviceRow.modelData)
+                        }
                     }
                 }
             }
@@ -1234,33 +1284,40 @@ PluginComponent {
             }
         }
 
-        CcGroup {
+        CappedList {
+            limit: panel.capLists
+            shown: panel.shown
+            group: moveGroup
             visible: panel.ready && !!panel.session && !panel.connecting && panel.others.length > 0
 
-            Repeater {
-                model: panel.session ? panel.others : []
+            CcGroup {
+                id: moveGroup
 
-                CcListRow {
-                    id: moveRow
-                    required property var modelData
+                Repeater {
+                    model: panel.session ? panel.others : []
 
-                    iconName: panel.service.deviceIcon(modelData)
-                    title: modelData.name
-                    subtitle: {
-                        if (panel.service.isQueue)
-                            return I18n.trFor("cast", "Move the slideshow here");
-                        if (panel.isMedia)
-                            return I18n.trFor("cast", "Move playback here");
-                        return I18n.trFor("cast", "Move the cast here");
-                    }
-                    clickable: true
-                    onClicked: panel.service.moveTo(modelData.id)
+                    CcListRow {
+                        id: moveRow
+                        required property var modelData
 
-                    CcPinChip {
-                        anchors.verticalCenter: parent.verticalCenter
-                        pinned: panel.service.favorite === moveRow.modelData.id
-                        iconOnly: !pinned
-                        onToggled: panel.service.setFavorite(moveRow.modelData)
+                        iconName: panel.service.deviceIcon(modelData)
+                        title: modelData.name
+                        subtitle: {
+                            if (panel.service.isQueue)
+                                return I18n.trFor("cast", "Move the slideshow here");
+                            if (panel.isMedia)
+                                return I18n.trFor("cast", "Move playback here");
+                            return I18n.trFor("cast", "Move the cast here");
+                        }
+                        clickable: true
+                        onClicked: panel.service.moveTo(modelData.id)
+
+                        CcPinChip {
+                            anchors.verticalCenter: parent.verticalCenter
+                            pinned: panel.service.favorite === moveRow.modelData.id
+                            iconOnly: !pinned
+                            onToggled: panel.service.setFavorite(moveRow.modelData)
+                        }
                     }
                 }
             }
