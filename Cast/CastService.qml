@@ -41,18 +41,18 @@ PluginComponent {
     property string aurHelper: "yay"
     property bool aurFound: false
     // The helper release the download command installs; it has to speak helperProtocol.
-    readonly property string helperRelease: "v0.2.0"
+    readonly property string helperRelease: "v0.2.1"
     // Downloads that release and installs it only if it matches its SHA256SUMS.
     readonly property string helperDownloadCommand: {
-        const base = "https://github.com/Conava/dux-cast/releases/download/" + helperRelease;
+        const base = "https://github.com/Conava/cast-helper/releases/download/" + helperRelease;
         const dir = shellQuote(bundledHelper.substring(0, bundledHelper.lastIndexOf("/")));
         const file = helperName + "-$(uname -m)";
         return "(mkdir -p " + dir + " && cd " + dir + " && dms dl " + base + "/" + file + " --timeout 300 -o " + file
             + " && dms dl " + base + "/SHA256SUMS | grep \" " + file + "$\" | sha256sum -c && chmod +x " + file
             + " && ./" + file + " version && mv " + file + " " + helperName + ")";
     }
-    readonly property string helperRepository: "https://github.com/Conava/dux-cast"
-    readonly property string dependenciesGuide: "https://github.com/Conava/dux-cast#1-dependencies"
+    readonly property string helperRepository: "https://github.com/Conava/cast-helper"
+    readonly property string dependenciesGuide: "https://github.com/Conava/cast-helper#building-from-source--other-distributions"
     readonly property string firewallGuide: "https://github.com/Conava/dux-plugins/blob/master/Cast/README.md#3-open-the-firewall"
 
     // How a terminal is told what to run, empty without one. Elevated commands need it.
@@ -87,7 +87,7 @@ PluginComponent {
     // Shown right above every button that installs or changes something.
     readonly property string helperDisclaimer: {
         if (helperMethod === "download")
-            return I18n.trFor("cast", "Downloads cast-helper %1 from github.com/Conava/dux-cast and runs it on this computer. It is not an official part of Dux Shell. The download is verified against the release checksums.").arg(helperRelease);
+            return I18n.trFor("cast", "Downloads cast-helper %1 from github.com/Conava/cast-helper and runs it on this computer. It is not an official part of Dux Shell. The download is verified against the release checksums.").arg(helperRelease);
         if (helperMethod === "aur")
             return I18n.trFor("cast", "Installs cast-helper from the AUR in a terminal. It is not an official part of Dux Shell.");
         return "";

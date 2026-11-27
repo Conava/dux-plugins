@@ -42,19 +42,13 @@ is picked for that device. Files, music and links always use Chromecast.
 ## Installation
 
 Cast needs the plugin and `cast-helper`, which does the casting. The helper lives in its own
-repository, [dux-cast](https://github.com/Conava/dux-cast), so other apps can share it.
+repository, [cast-helper](https://github.com/Conava/cast-helper), so other apps can share it.
 
 ### 1. Install cast-helper
 
-On Arch it's in the AUR, along with the packages it needs:
-
-```bash
-yay -S cast-helper
-```
-
-Everywhere else, follow the [dux-cast installation guide](https://github.com/Conava/dux-cast#install):
-a few GStreamer and Avahi packages, then a release build or a build from source. AirPlay also needs
-doubletake, which is explained there too.
+The [installation guide](https://github.com/Conava/cast-helper#installation) has the packages and
+commands for each distro, and covers AirPlay. The Setup section in the plugin's settings can also
+install the helper in one click.
 
 The plugin looks for `cast-helper` on `PATH`, then in `~/.local/share/dms/cast/bin/`. A
 development build from this repo's `./dev` script, in `~/.local/share/dms/cast/dev/`, comes
@@ -74,7 +68,7 @@ required packages and the firewall are done, the popout only links to the settin
 mirroring needs show as a notice instead, so files and links keep working. The Setup section there
 lists what's left in red and recommended packages in orange, with buttons to install
 them or copy the command. Anything that needs root opens in a terminal. On a system the plugin
-can't install on, it names what's needed and links here.
+can't install on, it names what's needed and links to the guide.
 
 When a newer helper is recommended, the popout and the settings say so and offer to update it. An
 older helper keeps working as long as it speaks the protocol the plugin needs.
@@ -102,7 +96,10 @@ system apps.
 Settings > Troubleshooting opens or copies a report with the logs, the setup, the network, the
 appearance and where the widget sits. It can contain device names, local addresses and file names,
 so review it before sharing. For an issue during a cast, enable Detailed logging and reproduce it
-first. For visual issues, attach a screenshot.
+first. For visual issues, attach a screenshot. Problems with the plugin go to this repo's
+issues. If casting itself fails, for example no image on the cast device or a device that won't
+connect, the [cast-helper issues](https://github.com/Conava/cast-helper/issues) are the place. If
+in doubt, open the issue here.
 
 ## Notes
 
@@ -117,10 +114,10 @@ first. For visual issues, attach a screenshot.
 ## Network and files
 
 The plugin loads the covers of songs another app casts, from where that app says. When asked to
-install or update cast-helper, it downloads the release from github.com/Conava/dux-cast into
+install or update cast-helper, it downloads the release from github.com/Conava/cast-helper into
 `~/.local/share/dms/cast/bin/`. A bug report is written to `~/.local/share/dms/cast/report.txt` and
 stays there until it's shared by hand. What cast-helper contacts and writes is listed in
-[its README](https://github.com/Conava/dux-cast#network-and-files): the cast devices on the local
+[its README](https://github.com/Conava/cast-helper#network-and-files): the cast devices on the local
 network, youtube.com for YouTube links, and the server of a direct link to ask for its media type.
 
 ## License
