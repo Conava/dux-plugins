@@ -127,6 +127,8 @@ build_helper() {
 cmd_link() {
     local dir id link
     dir=$(plugin_dir "${1:-}"); id=$(plugin_id "$dir"); link="$plugins_dir/$id"
+    # Before linking: the shell loads the plugin as soon as the link appears and picks its helper then.
+    build_helper "$id"
     if [ -L "$link" ] && [ "$(readlink -f "$link")" = "$dir" ]; then
         echo "already linked: $link"
     else
@@ -137,7 +139,6 @@ cmd_link() {
         ln -s "$dir" "$link"
         echo "linked $link -> $dir"
     fi
-    build_helper "$id"
     dms ipc plugin-scan scan >/dev/null
     echo "enable it in Settings > Plugins, then add it to a bar, dock or the dash"
 }
