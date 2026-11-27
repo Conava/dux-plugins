@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: cast-helper (the Cast plugin's backend)
-    url: https://github.com/Conava/dux-cast/issues
-    about: Problems with cast-helper outside the plugin, such as building, packaging or using it from another app. Not sure which it is? Report it here in dux-plugins.
+    url: https://github.com/Conava/cast-helper/issues
+    about: Casting itself fails, for example no image on the cast device or a device that won't connect. Not sure which it is? Report it here.

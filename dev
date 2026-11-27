@@ -7,7 +7,7 @@
 #   ./dev link PLUGIN            symlink PLUGIN into the running shell's plugin dir and rescan
 #   ./dev reload PLUGIN          reload PLUGIN in the running shell and print its status
 #                                (link and reload also build the plugin's helper from a checkout
-#                                next to this repo, ../dux-<id>, which the plugin then uses)
+#                                next to this repo, ../<id>-helper, which the plugin then uses)
 #                                (FAKE_MISSING=a,b ./dev reload PLUGIN builds a helper that reports
 #                                those dependency ids as missing; a plain reload undoes it)
 #   ./dev unlink PLUGIN          remove the symlink and the helper build again
@@ -106,13 +106,13 @@ EOF
 }
 
 # A plugin's Go helper lives in its own repo, checked out next to this one as
-# dux-<id>. It's built into the plugin's data folder under dev/, which the
+# <id>-helper. It's built into the plugin's data folder under dev/, which the
 # plugin prefers over an installed helper. (The running shell doesn't reread
 # plugin_settings.json, so a helperPath setting can't be set from here.) A
 # shared helper still running, this build's previous one or an installed one,
 # is stopped: it holds the socket new clients attach to. The plugin then
 # starts the new one. Dev builds log in debug mode, to ~/.cache/dms/<id>/serve.log.
-helper_src() { (cd "$root/../dux-$1" 2>/dev/null && pwd) || echo "$root/../dux-$1"; }
+helper_src() { (cd "$root/../$1-helper" 2>/dev/null && pwd) || echo "$root/../$1-helper"; }
 
 build_helper() {
     local id=$1 src

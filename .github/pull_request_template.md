@@ -32,5 +32,5 @@
 - [ ] Bumped `version` in `plugin.json` if users will notice the change
 - [ ] Updated the plugin's README if setup, dependencies or features changed
 - [ ] Screenshots attached for visual changes
-- [ ] Changes that also need cast-helper link the matching PR in [dux-cast](https://github.com/Conava/dux-cast)
+- [ ] Changes that also need cast-helper link the matching PR in [cast-helper](https://github.com/Conava/cast-helper)
 - [ ] If AI wrote a meaningful part, I've said so here, and I've read, tested and can explain every line
